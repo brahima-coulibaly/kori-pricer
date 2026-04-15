@@ -1,4 +1,4 @@
-"""Couche d'accès Supabase — client unique partagé via st.cache_resource."""
+"""Couche d'accès Supabase — un client par session utilisateur pour éviter les fuites de token."""
 from __future__ import annotations
 import os
 import streamlit as st
@@ -6,7 +6,6 @@ from supabase import create_client, Client
 
 
 def _get_cfg(key: str) -> str:
-    # Priorité : st.secrets > variables d'environnement
     try:
         if key in st.secrets:
             return st.secrets[key]
@@ -19,21 +18,36 @@ def _get_cfg(key: str) -> str:
     return v
 
 
-@st.cache_resource
+def _new_client() -> Client:
+    return create_client(_get_cfg("SUPABASE_URL"), _get_cfg("SUPABASE_ANON_KEY"))
+
+
 def get_client() -> Client:
-    url = _get_cfg("SUPABASE_URL")
-    key = _get_cfg("SUPABASE_ANON_KEY")
-    return create_client(url, key)
+    """Client non-authentifié (utilisé pour login/signup).
+    Un client par session Streamlit pour éviter de partager l'état entre utilisateurs."""
+    if "sb_client" not in st.session_state:
+        st.session_state["sb_client"] = _new_client()
+    return st.session_state["sb_client"]
 
 
 def sb() -> Client:
-    """Retourne le client Supabase avec la session utilisateur courante si dispo."""
+    """Retourne le client Supabase avec la session utilisateur courante attachée.
+    Rafraîchit la session depuis st.session_state à chaque appel pour garantir
+    la fraîcheur du token et éviter les erreurs RLS."""
     client = get_client()
     sess = st.session_state.get("sb_session")
     if sess:
-        # Attache le token d'accès pour que RLS s'applique correctement
+        token = sess.get("access_token")
+        refresh = sess.get("refresh_token")
+        # 1) Attacher le token au client d'auth (pour que sign_out fonctionne et
+        #    pour que les policies voient bien auth.uid())
         try:
-            client.postgrest.auth(sess["access_token"])
+            client.auth.set_session(token, refresh)
+        except Exception:
+            pass
+        # 2) Attacher explicitement le token au client PostgREST (data API)
+        try:
+            client.postgrest.auth(token)
         except Exception:
             pass
     return client
