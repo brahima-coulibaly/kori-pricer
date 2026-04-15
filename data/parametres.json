@@ -1,0 +1,18 @@
+{
+  "prix_carburant": 675,
+  "consommation_l_km": 0.5,
+  "lettre_voiture": 2500,
+  "marge_cible": 0.75,
+  "prime_0_300": 5000,
+  "prime_301_600": 10000,
+  "prime_601_plus": 15000,
+  "visite_technique": 365000,
+  "maintenance_km": 346,
+  "amortissement_vehicule": 123283.63,
+  "salaire_chauffeur": 12617.88,
+  "assurance_rc": 637.36,
+  "salaire_convoyeur": 2982.09,
+  "leasing": 3764.67,
+  "seuil_marge_basse": 0.6,
+  "seuil_marge_critique": 0.375
+}
