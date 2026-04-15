@@ -9,7 +9,7 @@ def sidebar():
     with st.sidebar:
         st.markdown(
             """
-            <div style="background:#E30613;color:#fff;padding:14px 10px;border-radius:8px;
+            <div style="background:#003B7A;color:#fff;padding:14px 10px;border-radius:8px;
                         text-align:center;font-weight:700;letter-spacing:1px;margin-bottom:10px;
                         font-family:'Arial Black',Arial,sans-serif;">
               🚛 KORI TRANSPORT
