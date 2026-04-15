@@ -124,16 +124,36 @@ if destination and attelage:
 
     # ---- Affichage des distances (DB vs routière) ----
     if trajet_info:
+        # Charger paramètres TMD
+        from lib.pricer import load_params
+        all_params = load_params()
+        vitesse_pl = all_params.get("vitesse_moyenne_pl_kmh", 50)
+        duree_max = all_params.get("duree_max_conduite_jour_h", 9)
+        marge = all_params.get("marge_securite_temps_pct", 15)
+
+        # Durée pratique TMD (poids lourd)
+        duree_aller_pratique_min = geo.duree_pratique_pl(
+            trajet_info["distance_km"], vitesse_pl, marge)
+        jours_mission = geo.nombre_jours_mission(duree_aller_pratique_min, duree_max)
+
         col_r1, col_r2, col_r3 = st.columns(3)
         col_r1.metric("🛣️ Distance routière A/R",
                       f"{distance_ar_reelle:,.1f} km".replace(",", " "))
-        col_r2.metric("⏱️ Durée estimée (aller)",
-                      f"{trajet_info['duration_min']:.0f} min "
-                      f"({trajet_info['duration_min']/60:.1f} h)")
+        col_r2.metric(f"⏱️ Durée aller camion-citerne (≈ {vitesse_pl:.0f} km/h)",
+                      f"{duree_aller_pratique_min:.0f} min "
+                      f"({duree_aller_pratique_min/60:.1f} h)",
+                      help=(f"Calculée pour un camion-citerne TMD gaz à {vitesse_pl:.0f} km/h "
+                            f"moyen + {marge:.0f}% marge de sécurité. "
+                            f"OSRM (voiture théorique) : {trajet_info['duration_min']:.0f} min."))
+        col_r3.metric("📅 Jours de mission A/R",
+                      f"{jours_mission} jour{'s' if jours_mission > 1 else ''}",
+                      help=f"Nombre de jours nécessaires selon la réglementation TMD "
+                           f"({duree_max:.0f} h de conduite max par jour).")
+
         if dest_data and dest_data.get("distance_ar_km"):
             diff = distance_ar_reelle - float(dest_data["distance_ar_km"])
-            col_r3.metric("Écart vs base", f"{diff:+.1f} km",
-                          help="Différence entre la distance routière calculée et celle stockée en base.")
+            if abs(diff) > 10:
+                st.caption(f"ℹ️ Écart distance routière vs base : **{diff:+.1f} km**")
 
     # ---- Choix de la distance utilisée pour la tarification ----
     distance_override = None

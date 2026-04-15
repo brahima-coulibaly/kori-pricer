@@ -106,6 +106,32 @@ def trajet_depuis_garage(lat: float, lon: float) -> dict | None:
     return calculer_trajet(GARAGE_KORI[0], GARAGE_KORI[1], lat, lon)
 
 
+def duree_pratique_pl(distance_km: float, vitesse_moyenne_kmh: float = 50,
+                       marge_securite_pct: float = 15) -> float:
+    """Calcule la durée pratique (en minutes) d'un trajet pour un camion-citerne TMD.
+
+    Bien plus réaliste que la durée OSRM qui est calibrée sur des voitures légères.
+    Prend en compte la vitesse moyenne effective (incluant pauses, contrôles,
+    agglomérations) et ajoute une marge de sécurité pour les imprévus.
+    """
+    if not distance_km or vitesse_moyenne_kmh <= 0:
+        return 0
+    heures = distance_km / vitesse_moyenne_kmh
+    heures *= (1 + marge_securite_pct / 100.0)
+    return heures * 60
+
+
+def nombre_jours_mission(duree_aller_min: float, duree_max_jour_h: float = 9) -> int:
+    """Nombre de jours de mission nécessaires pour un aller-retour, selon la
+    réglementation TMD (9h de conduite max par jour + nuit sur place si long).
+    """
+    if not duree_aller_min:
+        return 1
+    heures_ar = (duree_aller_min / 60) * 2  # aller + retour
+    import math
+    return max(1, math.ceil(heures_ar / duree_max_jour_h))
+
+
 # ---------- Cartes Folium ----------
 
 def carte_folium(lat: float | None = None, lon: float | None = None,
