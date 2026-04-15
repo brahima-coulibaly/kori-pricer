@@ -1,8 +1,9 @@
-"""Création d'une nouvelle offre commerciale."""
+"""Création d'une nouvelle offre commerciale — avec carte interactive OpenStreetMap."""
 import streamlit as st
-from lib import auth, pricer
+from lib import auth, pricer, geo
 from lib.db import sb
 from lib.pdf import pdf_offre
+from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Nouvelle offre — KORI", page_icon="📝", layout="wide")
 auth.require_role("commercial", "manager", "admin")
@@ -13,42 +14,112 @@ st.title("📝 Nouvelle offre commerciale")
 dests = sb().table("destinations").select("localite,distance_ar_km,latitude,longitude").order("localite").execute().data or []
 vehs = sb().table("vehicules").select("attelage").eq("actif", True).order("attelage").execute().data or []
 
-mode = st.radio("Mode de saisie", ["Choisir une destination", "Coordonnées GPS"], horizontal=True)
+mode = st.radio(
+    "Mode de saisie",
+    ["Choisir dans la liste", "Rechercher une ville", "Carte interactive"],
+    horizontal=True,
+    help="Liste : vos 74 destinations habituelles. Recherche : toute ville de Côte d'Ivoire. Carte : cliquez n'importe où.",
+)
 
 destination = None
-if mode == "Choisir une destination":
-    destination = st.selectbox("Destination", [d["localite"] for d in dests])
-else:
-    st.caption("📍 Saisissez les coordonnées GPS du point de livraison. "
-               "Côte d'Ivoire : latitude entre 4° et 11° (Nord), longitude entre -8° et -2° (Ouest).")
-    c1, c2 = st.columns(2)
-    lat = c1.number_input("Latitude (ex: 7.6900)", value=0.0, min_value=-90.0, max_value=90.0, format="%.4f")
-    lon = c2.number_input("Longitude (ex: -5.0300)", value=0.0, min_value=-180.0, max_value=180.0, format="%.4f")
-    if lat != 0.0 and lon != 0.0:
-        # Validation : coordonnées plausibles pour la Côte d'Ivoire
-        if not (4.0 <= lat <= 11.0 and -9.0 <= lon <= -2.0):
-            st.error("⚠️ Ces coordonnées semblent être hors de la Côte d'Ivoire. "
-                     "Vérifiez que la latitude est positive (Nord) et la longitude négative (Ouest).")
-        best, d = pricer.ville_la_plus_proche(lat, lon)
-        if best:
-            if d < 10:
-                st.success(f"✅ Ville la plus proche : **{best['localite']}** (écart : {d:.1f} km)")
-            elif d < 50:
-                st.info(f"📍 Ville la plus proche : **{best['localite']}** (écart : {d:.1f} km)")
-            else:
-                st.warning(f"⚠️ Ville la plus proche : **{best['localite']}** mais l'écart est de **{d:.1f} km** — "
-                           "vérifiez vos coordonnées ou prévoyez des frais supplémentaires.")
-            destination = best["localite"]
+gps_lat, gps_lon = None, None
 
+# ------- MODE 1 : choisir dans la liste -------
+if mode == "Choisir dans la liste":
+    destination = st.selectbox("Destination", [d["localite"] for d in dests])
+    dest_data = next((d for d in dests if d["localite"] == destination), None)
+    if dest_data:
+        gps_lat, gps_lon = dest_data.get("latitude"), dest_data.get("longitude")
+
+# ------- MODE 2 : recherche par nom (Nominatim / OpenStreetMap) -------
+elif mode == "Rechercher une ville":
+    st.caption("🔎 Tapez le nom d'une ville, d'un village ou d'un quartier puis cliquez sur Rechercher.")
+    col_q, col_btn = st.columns([5, 1])
+    query = col_q.text_input(
+        "Nom de la ville ou du lieu",
+        placeholder="Ex : Adzopé, Abobo, Vitré 2…",
+        label_visibility="collapsed",
+    )
+    go = col_btn.button("Rechercher", use_container_width=True)
+    if go and query:
+        with st.spinner("Recherche en cours…"):
+            st.session_state["geo_results"] = geo.chercher_lieu(query, limit=8)
+    results = st.session_state.get("geo_results", [])
+    if results:
+        options = [f"{r['display_name']}  —  ({r['lat']:.4f}, {r['lon']:.4f})" for r in results]
+        choix = st.radio("Choisissez le résultat correspondant :", options, index=0)
+        idx = options.index(choix)
+        r = results[idx]
+        gps_lat, gps_lon = r["lat"], r["lon"]
+        best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
+        if best:
+            if ecart < 15:
+                st.success(f"✅ Rattaché à **{best['localite']}** (écart : {ecart:.1f} km)")
+            elif ecart < 50:
+                st.info(f"📍 Ville de référence la plus proche : **{best['localite']}** (écart : {ecart:.1f} km)")
+            else:
+                st.warning(f"⚠️ Ville de référence la plus proche : **{best['localite']}** mais à {ecart:.1f} km — prévoyez des frais supplémentaires.")
+            destination = best["localite"]
+    elif go:
+        st.warning("Aucun résultat. Essayez une autre orthographe ou une ville plus proche.")
+
+# ------- MODE 3 : carte cliquable -------
+elif mode == "Carte interactive":
+    st.caption("🗺️ Cliquez n'importe où sur la carte pour positionner le point de livraison.")
+    last = st.session_state.get("map_click")
+    has_point = last is not None
+    m = geo.carte_folium(
+        lat=last["lat"] if has_point else None,
+        lon=last["lng"] if has_point else None,
+        zoom=9 if has_point else 6,
+        route_depuis_garage=has_point,
+        marker_label="Point sélectionné",
+    )
+    out = st_folium(m, width=None, height=500, returned_objects=["last_clicked"])
+    if out and out.get("last_clicked"):
+        new_click = out["last_clicked"]
+        # Éviter la boucle infinie : ne rerun que si c'est un nouveau clic
+        if last is None or new_click != last:
+            st.session_state["map_click"] = new_click
+            st.rerun()
+    if last:
+        gps_lat, gps_lon = last["lat"], last["lng"]
+        st.info(f"📍 Point sélectionné : **{gps_lat:.4f}, {gps_lon:.4f}**")
+        best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
+        if best:
+            destination = best["localite"]
+            if ecart < 15:
+                st.success(f"✅ Rattaché à **{destination}** (écart : {ecart:.1f} km)")
+            elif ecart < 50:
+                st.info(f"📍 Ville de référence la plus proche : **{destination}** (écart : {ecart:.1f} km)")
+            else:
+                st.warning(f"⚠️ Ville de référence la plus proche : **{destination}** à {ecart:.1f} km.")
+        if st.button("🔄 Réinitialiser le point"):
+            st.session_state.pop("map_click", None)
+            st.rerun()
+
+# ------- Suite du formulaire -------
+st.divider()
 attelage = st.selectbox("Attelage", [v["attelage"] for v in vehs])
 c1, c2 = st.columns(2)
 quantite = c1.number_input("Quantité (kg)", value=28000, min_value=1, step=1000)
 autres = c2.number_input("Autres dépenses (F CFA)", value=0, min_value=0, step=1000)
 
 if destination and attelage:
+    # Visualisation du trajet (affichée repliée si on est déjà en mode carte)
+    dest_data = next((d for d in dests if d["localite"] == destination), None)
+    if dest_data and dest_data.get("latitude") is not None:
+        with st.expander("🗺️ Visualiser le trajet sur carte", expanded=(mode != "Carte interactive")):
+            m_view = geo.carte_folium(
+                lat=float(dest_data["latitude"]),
+                lon=float(dest_data["longitude"]),
+                route_depuis_garage=True,
+                marker_label=destination,
+            )
+            st_folium(m_view, width=None, height=400, returned_objects=[], key="map_view")
+
     calc = pricer.calculer(destination, attelage, quantite, autres)
 
-    st.divider()
     st.subheader("📊 Détail des charges")
     d1, d2, d3 = st.columns(3)
     d1.metric("Distance A/R", f"{calc.distance_ar:,.0f} km".replace(",", " "))
@@ -72,8 +143,9 @@ if destination and attelage:
 
     st.divider()
     st.subheader("💰 Prix & marge")
-    prix_offert = st.number_input("Prix offert client (F/kg) — laissez 0 pour utiliser le prix plancher",
-                                  value=round(calc.prix_plancher_kg), min_value=0, step=1)
+    prix_offert = st.number_input(
+        "Prix offert client (F/kg) — laissez 0 pour utiliser le prix plancher",
+        value=round(calc.prix_plancher_kg), min_value=0, step=1)
     calc = pricer.calculer(destination, attelage, quantite, autres,
                            prix_offert_kg=prix_offert if prix_offert > 0 else None)
 
@@ -83,7 +155,6 @@ if destination and attelage:
     m3.metric("CA total", f"{calc.ca_total:,.0f} F".replace(",", " "))
     m4.metric("Taux de marge", f"{calc.taux_marge*100:.1f} %")
 
-    # Alertes marge
     from lib.pricer import load_params
     params = load_params()
     cible = params.get("marge_cible", 0.75)
@@ -112,6 +183,7 @@ if destination and attelage:
 
     if "last_offre" in st.session_state:
         pdf_bytes = pdf_offre(st.session_state["last_offre"])
-        col_pdf.download_button("📄 Télécharger le PDF", data=pdf_bytes,
-                                file_name=f"{st.session_state['last_offre']['numero']}.pdf",
-                                mime="application/pdf", use_container_width=True)
+        col_pdf.download_button(
+            "📄 Télécharger le PDF", data=pdf_bytes,
+            file_name=f"{st.session_state['last_offre']['numero']}.pdf",
+            mime="application/pdf", use_container_width=True)

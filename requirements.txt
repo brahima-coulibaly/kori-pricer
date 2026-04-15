@@ -3,3 +3,6 @@ supabase>=2.7
 pandas>=2.2
 python-dotenv>=1.0
 reportlab>=4.2
+folium>=0.16
+streamlit-folium>=0.22
+geopy>=2.4
