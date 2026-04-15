@@ -7,7 +7,19 @@ st.set_page_config(page_title="KORI Pricer", page_icon="🚛", layout="wide")
 
 def sidebar():
     with st.sidebar:
-        st.image("https://via.placeholder.com/180x60/E30613/FFFFFF?text=KORI+TRANSPORT", use_column_width=True)
+        st.markdown(
+            """
+            <div style="background:#E30613;color:#fff;padding:14px 10px;border-radius:8px;
+                        text-align:center;font-weight:700;letter-spacing:1px;margin-bottom:10px;
+                        font-family:'Arial Black',Arial,sans-serif;">
+              🚛 KORI TRANSPORT
+              <div style="font-size:0.7em;font-weight:400;opacity:0.9;margin-top:2px;">
+                Pricer Gaz Butane
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         user = auth.current_user()
         profile = auth.current_profile()
         if user:
