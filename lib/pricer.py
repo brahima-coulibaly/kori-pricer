@@ -60,12 +60,22 @@ def prime_par_distance(distance_ar_km: float, params: dict) -> float:
 
 def calculer(destination: str, attelage: str, quantite_kg: float,
              autres_depenses: float = 0.0, prix_offert_kg: float | None = None,
-             mode: str = "liste") -> OffreCalcul:
+             mode: str = "liste",
+             distance_ar_override: float | None = None) -> OffreCalcul:
+    """Calcule une offre.
+
+    Si distance_ar_override est fourni (ex : calculé via OSRM pour un point hors
+    liste), il remplace la distance stockée en base pour tous les calculs
+    dépendant du kilométrage (carburant, maintenance, prime voyage, VT/km).
+    Les péages et frais de mission restent ceux de la ville de référence.
+    """
     params = load_params()
     dest = get_destination(destination) or {}
     veh = get_vehicule(attelage) or {}
 
-    distance_ar = float(dest.get("distance_ar_km") or 0)
+    distance_ar = (float(distance_ar_override)
+                   if distance_ar_override is not None and distance_ar_override > 0
+                   else float(dest.get("distance_ar_km") or 0))
     peages_ar = float(dest.get("peages_ar") or 0)
     frais_mission = float(dest.get("frais_mission_unitaire") or 0)
 

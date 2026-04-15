@@ -106,19 +106,69 @@ quantite = c1.number_input("Quantité (kg)", value=28000, min_value=1, step=1000
 autres = c2.number_input("Autres dépenses (F CFA)", value=0, min_value=0, step=1000)
 
 if destination and attelage:
-    # Visualisation du trajet (affichée repliée si on est déjà en mode carte)
     dest_data = next((d for d in dests if d["localite"] == destination), None)
-    if dest_data and dest_data.get("latitude") is not None:
-        with st.expander("🗺️ Visualiser le trajet sur carte", expanded=(mode != "Carte interactive")):
+
+    # ---- Calcul de la distance routière réelle via OSRM ----
+    # Si l'utilisateur est en mode recherche/carte, on utilise les coords GPS sélectionnées.
+    # Sinon, on utilise les coords de la destination de la liste.
+    route_lat = gps_lat if gps_lat is not None else (dest_data.get("latitude") if dest_data else None)
+    route_lon = gps_lon if gps_lon is not None else (dest_data.get("longitude") if dest_data else None)
+
+    trajet_info = None
+    distance_ar_reelle = None
+    if route_lat is not None and route_lon is not None:
+        with st.spinner("Calcul de l'itinéraire routier…"):
+            trajet_info = geo.trajet_depuis_garage(float(route_lat), float(route_lon))
+        if trajet_info:
+            distance_ar_reelle = trajet_info["distance_km"] * 2  # aller-retour
+
+    # ---- Affichage des distances (DB vs routière) ----
+    if trajet_info:
+        col_r1, col_r2, col_r3 = st.columns(3)
+        col_r1.metric("🛣️ Distance routière A/R",
+                      f"{distance_ar_reelle:,.1f} km".replace(",", " "))
+        col_r2.metric("⏱️ Durée estimée (aller)",
+                      f"{trajet_info['duration_min']:.0f} min "
+                      f"({trajet_info['duration_min']/60:.1f} h)")
+        if dest_data and dest_data.get("distance_ar_km"):
+            diff = distance_ar_reelle - float(dest_data["distance_ar_km"])
+            col_r3.metric("Écart vs base", f"{diff:+.1f} km",
+                          help="Différence entre la distance routière calculée et celle stockée en base.")
+
+    # ---- Choix de la distance utilisée pour la tarification ----
+    distance_override = None
+    if mode in ("Rechercher une ville", "Carte interactive") and distance_ar_reelle:
+        # Hors liste : on utilise systématiquement la distance routière réelle
+        distance_override = distance_ar_reelle
+        st.info(f"ℹ️ La tarification utilise la **distance routière réelle** "
+                f"({distance_ar_reelle:.1f} km A/R) calculée via OpenStreetMap.")
+    elif mode == "Choisir dans la liste" and distance_ar_reelle and dest_data:
+        # En mode liste : par défaut distance DB, mais l'utilisateur peut choisir
+        db_dist = float(dest_data.get("distance_ar_km") or 0)
+        use_real = st.toggle(
+            f"Utiliser la distance routière calculée ({distance_ar_reelle:.1f} km) "
+            f"au lieu de la distance de référence ({db_dist:.0f} km) ?",
+            value=False,
+            help="La distance de référence (base de données) est généralement plus fiable "
+                 "car validée historiquement. Activez cette option pour un point de livraison "
+                 "différent ou pour une mise à jour ponctuelle.")
+        if use_real:
+            distance_override = distance_ar_reelle
+
+    # ---- Carte du trajet ----
+    if route_lat is not None and route_lon is not None:
+        with st.expander("🗺️ Visualiser l'itinéraire routier",
+                         expanded=(mode != "Carte interactive")):
             m_view = geo.carte_folium(
-                lat=float(dest_data["latitude"]),
-                lon=float(dest_data["longitude"]),
+                lat=float(route_lat), lon=float(route_lon),
                 route_depuis_garage=True,
                 marker_label=destination,
+                vrai_itineraire=True,
             )
             st_folium(m_view, width=None, height=400, returned_objects=[], key="map_view")
 
-    calc = pricer.calculer(destination, attelage, quantite, autres)
+    calc = pricer.calculer(destination, attelage, quantite, autres,
+                           distance_ar_override=distance_override)
 
     st.subheader("📊 Détail des charges")
     d1, d2, d3 = st.columns(3)
@@ -147,7 +197,8 @@ if destination and attelage:
         "Prix offert client (F/kg) — laissez 0 pour utiliser le prix plancher",
         value=round(calc.prix_plancher_kg), min_value=0, step=1)
     calc = pricer.calculer(destination, attelage, quantite, autres,
-                           prix_offert_kg=prix_offert if prix_offert > 0 else None)
+                           prix_offert_kg=prix_offert if prix_offert > 0 else None,
+                           distance_ar_override=distance_override)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total charges", f"{calc.total_charges:,.0f} F".replace(",", " "))
