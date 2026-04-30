@@ -238,11 +238,14 @@ if destination and attelage:
     trajet_info = None
     distance_osrm_ar = None
     if route_lat is not None and route_lon is not None:
-        with st.spinner("Calcul de l'itinéraire routier (indicatif)…"):
-            trajet_info = geo.trajet_depuis_garage(
-                float(route_lat), float(route_lon), waypoints=waypoints_tuple)
-        if trajet_info:
-            distance_osrm_ar = trajet_info["distance_km"] * 2
+        try:
+            _rlat, _rlon = float(route_lat), float(route_lon)
+            with st.spinner("Calcul de l'itinéraire routier (indicatif)…"):
+                trajet_info = geo.trajet_depuis_garage(_rlat, _rlon, waypoints=waypoints_tuple)
+            if trajet_info:
+                distance_osrm_ar = trajet_info["distance_km"] * 2
+        except (TypeError, ValueError):
+            trajet_info = None
 
     # ---- Affichage distance OSRM (indicatif) ----
     if trajet_info:

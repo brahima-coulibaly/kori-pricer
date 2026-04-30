@@ -115,7 +115,38 @@ def calculer_trajet(lat1: float, lon1: float, lat2: float, lon2: float,
 def trajet_depuis_garage(lat: float, lon: float,
                          waypoints: tuple | None = None) -> dict | None:
     """Raccourci : trajet aller depuis le garage KORI vers un point, avec waypoints."""
-    return calculer_trajet(GARAGE_KORI[0], GARAGE_KORI[1], lat, lon, waypoints=waypoints)
+    try:
+        return calculer_trajet(GARAGE_KORI[0], GARAGE_KORI[1], lat, lon, waypoints=waypoints)
+    except TypeError:
+        # Fallback sans cache si erreur de type (ex: problème de hash)
+        return _calculer_trajet_no_cache(GARAGE_KORI[0], GARAGE_KORI[1], lat, lon, waypoints)
+
+
+def _calculer_trajet_no_cache(lat1, lon1, lat2, lon2, waypoints=None):
+    """Version sans cache de calculer_trajet (fallback)."""
+    try:
+        points = [f"{lon1},{lat1}"]
+        if waypoints:
+            for wlat, wlon in waypoints:
+                points.append(f"{wlon},{wlat}")
+        points.append(f"{lon2},{lat2}")
+        coords_str = ";".join(points)
+        url = (f"{OSRM_BASE}/route/v1/driving/{coords_str}"
+               f"?overview=full&geometries=geojson&alternatives=false&steps=false")
+        req = urllib.request.Request(url, headers={"User-Agent": "kori-pricer-ci/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("code") != "Ok" or not data.get("routes"):
+            return None
+        route = data["routes"][0]
+        coords = [[c[1], c[0]] for c in route["geometry"]["coordinates"]]
+        return {
+            "distance_km": route["distance"] / 1000.0,
+            "duration_min": route["duration"] / 60.0,
+            "geometry": coords,
+        }
+    except Exception:
+        return None
 
 
 def duree_pratique_pl(distance_km: float, vitesse_moyenne_kmh: float = 50,
