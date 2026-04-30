@@ -8,7 +8,7 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 
 # Point de départ : garage KORI à Abidjan (Ancienne voie de Bassam)
-GARAGE_KORI = (5.345, -4.024)
+GARAGE_KORI = (5.226602842285156, -3.8468095585081135)
 
 # Bounding box Côte d'Ivoire pour restreindre les recherches
 CI_BBOX = {
