@@ -2,7 +2,20 @@
 import streamlit as st
 from lib import auth
 
-st.set_page_config(page_title="KORI Pricer", page_icon="🚛", layout="wide")
+st.set_page_config(page_title="KORI Pricer", page_icon="🚛", layout="wide",
+                   initial_sidebar_state="collapsed" if not auth.current_user() else "expanded")
+
+# --- Masquer complètement la sidebar si non connecté ---
+if not auth.current_user():
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stSidebarCollapsedControl"] { display: none; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def sidebar():
@@ -21,7 +34,6 @@ def sidebar():
             unsafe_allow_html=True,
         )
         user = auth.current_user()
-        profile = auth.current_profile()
         if user:
             role = auth.current_role()
             st.success(f"Connecté : **{user['email']}**")
@@ -34,33 +46,53 @@ def sidebar():
 
 
 def login_ui():
-    st.title("🚛 KORI TRANSPORT — Pricer")
-    st.subheader("Connexion")
+    # Page de connexion centrée et épurée
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        st.markdown(
+            """
+            <div style="background:#003B7A;color:#fff;padding:24px 16px;border-radius:12px;
+                        text-align:center;font-weight:700;letter-spacing:1px;margin-bottom:24px;
+                        font-family:'Arial Black',Arial,sans-serif;font-size:1.4em;">
+              🚛 KORI TRANSPORT
+              <div style="font-size:0.55em;font-weight:400;opacity:0.9;margin-top:6px;">
+                Pricer Gaz Butane — Côte d'Ivoire
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    tab1, tab2 = st.tabs(["Se connecter", "Créer un compte"])
+        tab1, tab2 = st.tabs(["Se connecter", "Créer un compte"])
 
-    with tab1:
-        with st.form("login"):
-            email = st.text_input("Email")
-            pwd = st.text_input("Mot de passe", type="password")
-            if st.form_submit_button("Se connecter", type="primary", use_container_width=True):
-                ok, msg = auth.sign_in(email, pwd)
-                if ok:
-                    st.rerun()
-                else:
-                    st.error(msg)
+        with tab1:
+            with st.form("login"):
+                email = st.text_input("Email")
+                pwd = st.text_input("Mot de passe", type="password")
+                if st.form_submit_button("Se connecter", type="primary", use_container_width=True):
+                    ok, msg = auth.sign_in(email, pwd)
+                    if ok:
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
-    with tab2:
-        with st.form("signup"):
-            nom = st.text_input("Nom complet")
-            email2 = st.text_input("Email ", key="su_email")
-            pwd2 = st.text_input("Mot de passe (min. 8 caractères)", type="password", key="su_pwd")
-            if st.form_submit_button("Créer mon compte", use_container_width=True):
-                if len(pwd2) < 8:
-                    st.error("Mot de passe trop court.")
-                else:
-                    ok, msg = auth.sign_up(email2, pwd2, nom)
-                    (st.success if ok else st.error)(msg)
+        with tab2:
+            with st.form("signup"):
+                nom = st.text_input("Nom complet")
+                email2 = st.text_input("Email ", key="su_email")
+                pwd2 = st.text_input("Mot de passe (min. 8 caractères)", type="password", key="su_pwd")
+                if st.form_submit_button("Créer mon compte", use_container_width=True):
+                    if len(pwd2) < 8:
+                        st.error("Mot de passe trop court.")
+                    else:
+                        ok, msg = auth.sign_up(email2, pwd2, nom)
+                        (st.success if ok else st.error)(msg)
+
+        st.markdown(
+            "<div style='text-align:center;margin-top:32px;color:#888;font-size:0.8em;'>"
+            "© 2026 KORI TRANSPORT SA</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def home():
@@ -95,8 +127,8 @@ Utilisez le menu latéral pour accéder aux différents modules :
         st.info(f"(Tableau de bord indisponible : {e})")
 
 
-sidebar()
 if not auth.current_user():
     login_ui()
 else:
+    sidebar()
     home()
