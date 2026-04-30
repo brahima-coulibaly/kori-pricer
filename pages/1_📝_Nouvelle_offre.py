@@ -147,15 +147,100 @@ quantite = c1.number_input("Quantité (kg)", value=28000, min_value=1, step=1000
 autres = c2.number_input("Autres dépenses (F CFA)", value=0, min_value=0, step=1000)
 
 if destination and attelage:
-    # ---- Calcul de la distance routière via OSRM (indicatif) ----
+    # ---- Points de passage (waypoints) pour corriger l'itinéraire ----
     route_lat = gps_lat if gps_lat is not None else (dest_data.get("latitude") if dest_data else None)
     route_lon = gps_lon if gps_lon is not None else (dest_data.get("longitude") if dest_data else None)
 
+    with st.expander("🛤️ Points de passage (optionnel — pour corriger l'itinéraire)", expanded=False):
+        st.caption("Ajoutez des points intermédiaires pour forcer l'itinéraire à passer par "
+                   "les bonnes routes. Ex : passer par **Bonoua** au lieu d'Alepe.")
+
+        # Initialiser la liste des waypoints en session
+        if "waypoints" not in st.session_state:
+            st.session_state["waypoints"] = []
+
+        # Interface d'ajout d'un nouveau waypoint
+        wp_mode = st.radio("Ajouter un point via :", ["Ville connue", "Recherche", "Coordonnées GPS"],
+                           horizontal=True, key="wp_mode")
+
+        if wp_mode == "Ville connue":
+            wp_ville = st.selectbox("Ville de passage", [d["localite"] for d in dests], key="wp_ville")
+            wp_data = next((d for d in dests if d["localite"] == wp_ville), None)
+            if wp_data and wp_data.get("latitude") and wp_data.get("longitude"):
+                if st.button(f"➕ Ajouter **{wp_ville}** comme point de passage", key="wp_add_ville"):
+                    st.session_state["waypoints"].append({
+                        "label": wp_ville,
+                        "lat": float(wp_data["latitude"]),
+                        "lon": float(wp_data["longitude"]),
+                    })
+                    st.rerun()
+            elif wp_data:
+                st.warning(f"{wp_ville} n'a pas de coordonnées GPS en base.")
+
+        elif wp_mode == "Recherche":
+            col_wq, col_wb = st.columns([5, 1])
+            wp_query = col_wq.text_input("Nom du lieu de passage", placeholder="Ex : Bonoua",
+                                          key="wp_query")
+            if col_wb.button("Chercher", key="wp_search", use_container_width=True) and wp_query:
+                with st.spinner("Recherche…"):
+                    st.session_state["wp_results"] = geo.chercher_lieu(wp_query, limit=5)
+            wp_results = st.session_state.get("wp_results", [])
+            if wp_results:
+                wp_opts = [f"{r['display_name']} — ({r['lat']:.4f}, {r['lon']:.4f})" for r in wp_results]
+                wp_choix = st.radio("Résultat :", wp_opts, key="wp_choix")
+                wp_r = wp_results[wp_opts.index(wp_choix)]
+                if st.button(f"➕ Ajouter comme point de passage", key="wp_add_search"):
+                    label = wp_r["display_name"].split(",")[0]
+                    st.session_state["waypoints"].append({
+                        "label": label,
+                        "lat": wp_r["lat"],
+                        "lon": wp_r["lon"],
+                    })
+                    st.session_state.pop("wp_results", None)
+                    st.rerun()
+
+        elif wp_mode == "Coordonnées GPS":
+            col_wlat, col_wlon = st.columns(2)
+            wp_lat = col_wlat.number_input("Latitude", value=None, min_value=4.0, max_value=11.0,
+                                            format="%.6f", step=0.001, key="wp_lat")
+            wp_lon = col_wlon.number_input("Longitude", value=None, min_value=-9.0, max_value=-2.0,
+                                            format="%.6f", step=0.001, key="wp_lon")
+            if wp_lat is not None and wp_lon is not None:
+                if st.button(f"➕ Ajouter ({wp_lat:.4f}, {wp_lon:.4f}) comme point de passage",
+                             key="wp_add_gps"):
+                    st.session_state["waypoints"].append({
+                        "label": f"GPS ({wp_lat:.4f}, {wp_lon:.4f})",
+                        "lat": wp_lat,
+                        "lon": wp_lon,
+                    })
+                    st.rerun()
+
+        # Afficher les waypoints actuels
+        wps = st.session_state.get("waypoints", [])
+        if wps:
+            st.markdown("**Points de passage actuels :**")
+            for i, wp in enumerate(wps):
+                col_wp, col_del = st.columns([5, 1])
+                col_wp.write(f"{i+1}. **{wp['label']}** ({wp['lat']:.4f}, {wp['lon']:.4f})")
+                if col_del.button("❌", key=f"wp_del_{i}"):
+                    st.session_state["waypoints"].pop(i)
+                    st.rerun()
+            if st.button("🗑️ Supprimer tous les points de passage", key="wp_clear"):
+                st.session_state["waypoints"] = []
+                st.rerun()
+
+    # Convertir en tuple pour le cache OSRM
+    waypoints_tuple = tuple((wp["lat"], wp["lon"]) for wp in st.session_state.get("waypoints", []))
+    if not waypoints_tuple:
+        waypoints_tuple = None
+
+    # ---- Calcul de la distance routière via OSRM (indicatif) ----
     trajet_info = None
     distance_osrm_ar = None
     if route_lat is not None and route_lon is not None:
         with st.spinner("Calcul de l'itinéraire routier (indicatif)…"):
-            trajet_info = geo.trajet_depuis_garage(float(route_lat), float(route_lon))
+            trajet_info = geo.trajet_depuis_garage(
+                float(route_lat), float(route_lon), waypoints=waypoints_tuple)
         if trajet_info:
             distance_osrm_ar = trajet_info["distance_km"] * 2
 
@@ -231,11 +316,14 @@ if destination and attelage:
             st.caption("⚠️ L'itinéraire affiché est généré automatiquement et peut "
                        "ne pas correspondre au trajet réellement emprunté par les camions. "
                        "Les distances et péages officiels sont ceux saisis ci-dessus.")
+            if waypoints_tuple:
+                st.caption(f"🛤️ Itinéraire passant par {len(waypoints_tuple)} point(s) de passage.")
             m_view = geo.carte_folium(
                 lat=float(route_lat), lon=float(route_lon),
                 route_depuis_garage=True,
                 marker_label=destination,
                 vrai_itineraire=True,
+                waypoints=waypoints_tuple,
             )
             st_folium(m_view, width=None, height=400, returned_objects=[], key="map_view")
 

@@ -74,15 +74,26 @@ def reverse_geocode(lat: float, lon: float) -> str | None:
 # ---------- Routing OSRM (distance routière réelle + itinéraire) ----------
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def calculer_trajet(lat1: float, lon1: float, lat2: float, lon2: float) -> dict | None:
-    """Calcule le trajet routier réel entre deux points via OSRM.
+def calculer_trajet(lat1: float, lon1: float, lat2: float, lon2: float,
+                    waypoints: tuple | None = None) -> dict | None:
+    """Calcule le trajet routier entre deux points via OSRM, avec waypoints optionnels.
 
-    Retourne un dict {distance_km, duration_min, geometry} où geometry est une
-    liste de [lat, lon] du tracé exact de la route, ou None en cas d'échec.
+    waypoints : tuple de (lat, lon) intermédiaires pour forcer le passage par
+    des points précis (ex : passer par Bonoua plutôt que par Alepe).
+    Utilise un tuple (et non une liste) pour être compatible avec st.cache_data.
+
+    Retourne un dict {distance_km, duration_min, geometry} ou None en cas d'échec.
     """
     try:
-        url = (f"{OSRM_BASE}/route/v1/driving/"
-               f"{lon1},{lat1};{lon2},{lat2}"
+        # Construction des coordonnées : départ ; waypoint1 ; waypoint2 ; … ; arrivée
+        points = [f"{lon1},{lat1}"]
+        if waypoints:
+            for wlat, wlon in waypoints:
+                points.append(f"{wlon},{wlat}")
+        points.append(f"{lon2},{lat2}")
+        coords_str = ";".join(points)
+
+        url = (f"{OSRM_BASE}/route/v1/driving/{coords_str}"
                f"?overview=full&geometries=geojson&alternatives=false&steps=false")
         req = urllib.request.Request(url, headers={"User-Agent": "kori-pricer-ci/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -101,9 +112,10 @@ def calculer_trajet(lat1: float, lon1: float, lat2: float, lon2: float) -> dict 
         return None
 
 
-def trajet_depuis_garage(lat: float, lon: float) -> dict | None:
-    """Raccourci : trajet aller depuis le garage KORI vers un point."""
-    return calculer_trajet(GARAGE_KORI[0], GARAGE_KORI[1], lat, lon)
+def trajet_depuis_garage(lat: float, lon: float,
+                         waypoints: tuple | None = None) -> dict | None:
+    """Raccourci : trajet aller depuis le garage KORI vers un point, avec waypoints."""
+    return calculer_trajet(GARAGE_KORI[0], GARAGE_KORI[1], lat, lon, waypoints=waypoints)
 
 
 def duree_pratique_pl(distance_km: float, vitesse_moyenne_kmh: float = 50,
@@ -137,11 +149,12 @@ def nombre_jours_mission(duree_aller_min: float, duree_max_jour_h: float = 9) ->
 def carte_folium(lat: float | None = None, lon: float | None = None,
                  zoom: int = 7, route_depuis_garage: bool = False,
                  marker_label: str | None = None,
-                 vrai_itineraire: bool = True):
-    """Crée une carte Folium.
+                 vrai_itineraire: bool = True,
+                 waypoints: tuple | None = None):
+    """Crée une carte Folium avec waypoints optionnels.
 
     Si route_depuis_garage et vrai_itineraire sont True, on trace le vrai
-    itinéraire routier OSRM. Sinon, on trace une simple ligne droite (vol d'oiseau).
+    itinéraire routier OSRM (en passant par les waypoints si fournis).
     """
     import folium
     center = (lat, lon) if (lat is not None and lon is not None) else (7.5, -5.5)
@@ -152,19 +165,33 @@ def carte_folium(lat: float | None = None, lon: float | None = None,
     if lat is not None and lon is not None:
         folium.Marker((lat, lon), tooltip=marker_label or "Destination",
                       icon=folium.Icon(color="blue", icon="flag", prefix="fa")).add_to(m)
+        # Afficher les marqueurs des points de passage
+        if waypoints:
+            for i, (wlat, wlon) in enumerate(waypoints, 1):
+                folium.Marker(
+                    (wlat, wlon),
+                    tooltip=f"Point de passage {i}",
+                    icon=folium.Icon(color="green", icon="arrow-right", prefix="fa"),
+                ).add_to(m)
         if route_depuis_garage:
-            trajet = trajet_depuis_garage(lat, lon) if vrai_itineraire else None
+            trajet = trajet_depuis_garage(lat, lon, waypoints=waypoints) if vrai_itineraire else None
             if trajet and trajet.get("geometry"):
                 folium.PolyLine(trajet["geometry"],
                                 color="#E30613", weight=4, opacity=0.85,
                                 tooltip=(f"Route : {trajet['distance_km']:.1f} km • "
                                          f"≈ {trajet['duration_min']:.0f} min")
                                 ).add_to(m)
-                m.fit_bounds([[min(GARAGE_KORI[0], lat), min(GARAGE_KORI[1], lon)],
-                              [max(GARAGE_KORI[0], lat), max(GARAGE_KORI[1], lon)]],
+                # Bounds incluant les waypoints
+                all_lats = [GARAGE_KORI[0], lat]
+                all_lons = [GARAGE_KORI[1], lon]
+                if waypoints:
+                    for wlat, wlon in waypoints:
+                        all_lats.append(wlat)
+                        all_lons.append(wlon)
+                m.fit_bounds([[min(all_lats), min(all_lons)],
+                              [max(all_lats), max(all_lons)]],
                              padding=(30, 30))
             else:
-                # Fallback : ligne droite
                 folium.PolyLine([GARAGE_KORI, (lat, lon)],
                                 color="#888", weight=2, opacity=0.6, dash_array="5,5",
                                 tooltip="Trajet indicatif (vol d'oiseau)").add_to(m)
