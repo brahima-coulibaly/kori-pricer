@@ -110,17 +110,48 @@ if is_admin:
 
         with col_info:
             st.markdown(f"### {selected}")
-            if has_gps:
-                st.write(f"📍 Latitude : **{float(cur_lat):.6f}**")
-                st.write(f"📍 Longitude : **{float(cur_lon):.6f}**")
-            else:
-                st.write("📍 Latitude : **—**")
-                st.write("📍 Longitude : **—**")
-            st.write(f"🛣️ Distance A/R : **{cur_dist} km**")
+            cur_peages = dest_row.get("peages_ar", 0) or 0
+            cur_frais = dest_row.get("frais_mission_unitaire", 0) or 0
 
-            # --- Rechercher les bonnes coordonnées ---
+            if has_gps:
+                st.write(f"📍 Lat : **{float(cur_lat):.6f}** — Lon : **{float(cur_lon):.6f}**")
+            else:
+                st.write("📍 Coordonnées GPS : **—**")
+
+            # Champs éditables : distance, péages, frais de mission
+            st.markdown("**📐 Données de la destination**")
+            edit_dist = st.number_input("Distance A/R (km)", value=float(cur_dist),
+                                         min_value=0.0, step=10.0, format="%.1f", key="verif_dist")
+            edit_peages = st.number_input("Péages A/R (F CFA)", value=int(cur_peages),
+                                           min_value=0, step=500, key="verif_peages")
+            edit_frais = st.number_input("Frais de mission (F CFA)", value=int(cur_frais),
+                                          min_value=0, step=1000, key="verif_frais")
+
+            # Bouton de sauvegarde si quelque chose a changé
+            dist_changed = edit_dist != float(cur_dist)
+            peages_changed = edit_peages != int(cur_peages)
+            frais_changed = edit_frais != int(cur_frais)
+            if dist_changed or peages_changed or frais_changed:
+                if st.button("💾 Enregistrer les modifications", type="primary",
+                             key="verif_save_data", use_container_width=True):
+                    try:
+                        with st.spinner("Mise à jour…"):
+                            payload = {}
+                            if dist_changed:
+                                payload["distance_ar_km"] = float(edit_dist)
+                            if peages_changed:
+                                payload["peages_ar"] = float(edit_peages)
+                            if frais_changed:
+                                payload["frais_mission_unitaire"] = float(edit_frais)
+                            sb().table("destinations").update(payload).eq("id", dest_id).execute()
+                        st.success(f"✅ **{selected}** mis à jour !")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur : {e}")
+
+            # --- Corriger les coordonnées GPS ---
             st.markdown("---")
-            st.markdown("**🔎 Corriger les coordonnées**")
+            st.markdown("**🔎 Corriger les coordonnées GPS**")
             corr_mode = st.radio("Méthode :", ["Recherche", "Saisie GPS"],
                                   horizontal=True, key="corr_mode")
 
@@ -147,7 +178,7 @@ if is_admin:
                                         "longitude": float(r["lon"]),
                                     }).eq("id", dest_id).execute()
                                 st.session_state.pop("verif_search_results", None)
-                                st.success(f"✅ **{selected}** mis à jour !")
+                                st.success(f"✅ GPS de **{selected}** mis à jour !")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Erreur : {e}")
@@ -170,7 +201,7 @@ if is_admin:
                                     "latitude": float(new_lat),
                                     "longitude": float(new_lon),
                                 }).eq("id", dest_id).execute()
-                            st.success(f"✅ **{selected}** mis à jour !")
+                            st.success(f"✅ GPS de **{selected}** mis à jour !")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erreur : {e}")
