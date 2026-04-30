@@ -141,7 +141,9 @@ elif mode == "Carte interactive":
 
 # ------- Suite du formulaire -------
 st.divider()
-attelage = st.selectbox("Attelage", [v["attelage"] for v in vehs])
+_attelages = [v["attelage"] for v in vehs]
+_default_idx = _attelages.index("739LS01-739LS01") if "739LS01-739LS01" in _attelages else 0
+attelage = st.selectbox("Attelage", _attelages, index=_default_idx)
 c1, c2 = st.columns(2)
 quantite = c1.number_input("Quantité (kg)", value=28000, min_value=1, step=1000)
 autres = c2.number_input("Autres dépenses (F CFA)", value=0, min_value=0, step=1000)
