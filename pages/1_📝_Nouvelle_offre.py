@@ -1,4 +1,4 @@
-"""Création d'une nouvelle offre commerciale — avec carte interactive OpenStreetMap."""
+"""Création d'une nouvelle offre commerciale — avec carte, GPS et champs éditables."""
 import streamlit as st
 from lib import auth, pricer, geo
 from lib.db import sb
@@ -11,18 +11,22 @@ auth.require_role("commercial", "manager", "admin")
 st.title("📝 Nouvelle offre commerciale")
 
 # Chargement des listes
-dests = sb().table("destinations").select("localite,distance_ar_km,latitude,longitude").order("localite").execute().data or []
+dests = sb().table("destinations").select("localite,distance_ar_km,peages_ar,frais_mission_unitaire,latitude,longitude").order("localite").execute().data or []
 vehs = sb().table("vehicules").select("attelage").eq("actif", True).order("attelage").execute().data or []
 
 mode = st.radio(
     "Mode de saisie",
-    ["Choisir dans la liste", "Rechercher une ville", "Carte interactive"],
+    ["Choisir dans la liste", "Rechercher un lieu", "Coordonnées GPS", "Carte interactive"],
     horizontal=True,
-    help="Liste : vos 74 destinations habituelles. Recherche : toute ville de Côte d'Ivoire. Carte : cliquez n'importe où.",
+    help=("Liste : vos destinations habituelles. "
+          "Recherche : toute localité de Côte d'Ivoire. "
+          "GPS : entrez directement les coordonnées du point de livraison. "
+          "Carte : cliquez sur la carte pour positionner le point."),
 )
 
 destination = None
 gps_lat, gps_lon = None, None
+dest_data = None
 
 # ------- MODE 1 : choisir dans la liste -------
 if mode == "Choisir dans la liste":
@@ -32,12 +36,12 @@ if mode == "Choisir dans la liste":
         gps_lat, gps_lon = dest_data.get("latitude"), dest_data.get("longitude")
 
 # ------- MODE 2 : recherche par nom (Nominatim / OpenStreetMap) -------
-elif mode == "Rechercher une ville":
-    st.caption("🔎 Tapez le nom d'une ville, d'un village ou d'un quartier puis cliquez sur Rechercher.")
+elif mode == "Rechercher un lieu":
+    st.caption("🔎 Tapez le nom d'un lieu (ville, village, quartier, site industriel…)")
     col_q, col_btn = st.columns([5, 1])
     query = col_q.text_input(
-        "Nom de la ville ou du lieu",
-        placeholder="Ex : Adzopé, Abobo, Vitré 2…",
+        "Nom du lieu",
+        placeholder="Ex : Adzopé, Abobo, Zone industrielle Yopougon…",
         label_visibility="collapsed",
     )
     go = col_btn.button("Rechercher", use_container_width=True)
@@ -60,12 +64,49 @@ elif mode == "Rechercher une ville":
             else:
                 st.warning(f"⚠️ Ville de référence la plus proche : **{best['localite']}** mais à {ecart:.1f} km — prévoyez des frais supplémentaires.")
             destination = best["localite"]
+            dest_data = next((d for d in dests if d["localite"] == destination), None)
     elif go:
-        st.warning("Aucun résultat. Essayez une autre orthographe ou une ville plus proche.")
+        st.warning("Aucun résultat. Essayez une autre orthographe ou un lieu plus proche.")
 
-# ------- MODE 3 : carte cliquable -------
+# ------- MODE 3 : Coordonnées GPS directes -------
+elif mode == "Coordonnées GPS":
+    st.caption("📍 Entrez les coordonnées GPS exactes du point de livraison.")
+    st.info("💡 Astuce : vous pouvez trouver les coordonnées sur Google Maps (clic droit → coordonnées).")
+    col_lat, col_lon = st.columns(2)
+    input_lat = col_lat.number_input("Latitude", value=None, min_value=4.0, max_value=11.0,
+                                      format="%.6f", step=0.001,
+                                      placeholder="Ex : 6.8276",
+                                      help="Latitude en degrés décimaux (entre 4.0 et 11.0 pour la Côte d'Ivoire)")
+    input_lon = col_lon.number_input("Longitude", value=None, min_value=-9.0, max_value=-2.0,
+                                      format="%.6f", step=0.001,
+                                      placeholder="Ex : -5.2893",
+                                      help="Longitude en degrés décimaux (entre -9.0 et -2.0 pour la Côte d'Ivoire)")
+    if input_lat is not None and input_lon is not None:
+        gps_lat, gps_lon = input_lat, input_lon
+        # Géocodage inverse pour afficher le nom du lieu
+        with st.spinner("Identification du lieu…"):
+            adresse = geo.reverse_geocode(gps_lat, gps_lon)
+        if adresse:
+            st.success(f"📍 Lieu identifié : **{adresse}**")
+        else:
+            st.info(f"📍 Point GPS : **{gps_lat:.6f}, {gps_lon:.6f}**")
+        # Rattachement à la ville de référence la plus proche
+        best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
+        if best:
+            if ecart < 15:
+                st.success(f"✅ Rattaché à **{best['localite']}** (écart : {ecart:.1f} km)")
+            elif ecart < 50:
+                st.info(f"📍 Ville de référence : **{best['localite']}** (écart : {ecart:.1f} km)")
+            else:
+                st.warning(f"⚠️ Ville la plus proche : **{best['localite']}** à {ecart:.1f} km.")
+            destination = best["localite"]
+            dest_data = next((d for d in dests if d["localite"] == destination), None)
+    else:
+        st.warning("Veuillez renseigner la latitude et la longitude.")
+
+# ------- MODE 4 : carte cliquable -------
 elif mode == "Carte interactive":
-    st.caption("🗺️ Cliquez n'importe où sur la carte pour positionner le point de livraison.")
+    st.caption("🗺️ Cliquez sur la carte pour positionner le point de livraison.")
     last = st.session_state.get("map_click")
     has_point = last is not None
     m = geo.carte_folium(
@@ -78,7 +119,6 @@ elif mode == "Carte interactive":
     out = st_folium(m, width=None, height=500, returned_objects=["last_clicked"])
     if out and out.get("last_clicked"):
         new_click = out["last_clicked"]
-        # Éviter la boucle infinie : ne rerun que si c'est un nouveau clic
         if last is None or new_click != last:
             st.session_state["map_click"] = new_click
             st.rerun()
@@ -88,12 +128,13 @@ elif mode == "Carte interactive":
         best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
         if best:
             destination = best["localite"]
+            dest_data = next((d for d in dests if d["localite"] == destination), None)
             if ecart < 15:
                 st.success(f"✅ Rattaché à **{destination}** (écart : {ecart:.1f} km)")
             elif ecart < 50:
-                st.info(f"📍 Ville de référence la plus proche : **{destination}** (écart : {ecart:.1f} km)")
+                st.info(f"📍 Ville de référence : **{destination}** (écart : {ecart:.1f} km)")
             else:
-                st.warning(f"⚠️ Ville de référence la plus proche : **{destination}** à {ecart:.1f} km.")
+                st.warning(f"⚠️ Ville la plus proche : **{destination}** à {ecart:.1f} km.")
         if st.button("🔄 Réinitialiser le point"):
             st.session_state.pop("map_click", None)
             st.rerun()
@@ -106,79 +147,90 @@ quantite = c1.number_input("Quantité (kg)", value=28000, min_value=1, step=1000
 autres = c2.number_input("Autres dépenses (F CFA)", value=0, min_value=0, step=1000)
 
 if destination and attelage:
-    dest_data = next((d for d in dests if d["localite"] == destination), None)
-
-    # ---- Calcul de la distance routière réelle via OSRM ----
-    # Si l'utilisateur est en mode recherche/carte, on utilise les coords GPS sélectionnées.
-    # Sinon, on utilise les coords de la destination de la liste.
+    # ---- Calcul de la distance routière via OSRM (indicatif) ----
     route_lat = gps_lat if gps_lat is not None else (dest_data.get("latitude") if dest_data else None)
     route_lon = gps_lon if gps_lon is not None else (dest_data.get("longitude") if dest_data else None)
 
     trajet_info = None
-    distance_ar_reelle = None
+    distance_osrm_ar = None
     if route_lat is not None and route_lon is not None:
-        with st.spinner("Calcul de l'itinéraire routier…"):
+        with st.spinner("Calcul de l'itinéraire routier (indicatif)…"):
             trajet_info = geo.trajet_depuis_garage(float(route_lat), float(route_lon))
         if trajet_info:
-            distance_ar_reelle = trajet_info["distance_km"] * 2  # aller-retour
+            distance_osrm_ar = trajet_info["distance_km"] * 2
 
-    # ---- Affichage des distances (DB vs routière) ----
+    # ---- Affichage distance OSRM (indicatif) ----
     if trajet_info:
-        # Charger paramètres TMD
         from lib.pricer import load_params
         all_params = load_params()
         vitesse_pl = all_params.get("vitesse_moyenne_pl_kmh", 50)
         duree_max = all_params.get("duree_max_conduite_jour_h", 9)
-        marge = all_params.get("marge_securite_temps_pct", 15)
+        marge_temps = all_params.get("marge_securite_temps_pct", 15)
 
-        # Durée pratique TMD (poids lourd)
         duree_aller_pratique_min = geo.duree_pratique_pl(
-            trajet_info["distance_km"], vitesse_pl, marge)
+            trajet_info["distance_km"], vitesse_pl, marge_temps)
         jours_mission = geo.nombre_jours_mission(duree_aller_pratique_min, duree_max)
 
+        st.caption("🗺️ **Estimation OSRM** (itinéraire indicatif — peut différer de la route réelle)")
         col_r1, col_r2, col_r3 = st.columns(3)
-        col_r1.metric("🛣️ Distance routière A/R",
-                      f"{distance_ar_reelle:,.1f} km".replace(",", " "))
-        col_r2.metric(f"⏱️ Durée aller camion-citerne (≈ {vitesse_pl:.0f} km/h)",
+        col_r1.metric("🛣️ Distance OSRM A/R",
+                      f"{distance_osrm_ar:,.1f} km".replace(",", " "))
+        col_r2.metric(f"⏱️ Durée aller camion ({vitesse_pl:.0f} km/h)",
                       f"{duree_aller_pratique_min:.0f} min "
-                      f"({duree_aller_pratique_min/60:.1f} h)",
-                      help=(f"Calculée pour un camion-citerne TMD gaz à {vitesse_pl:.0f} km/h "
-                            f"moyen + {marge:.0f}% marge de sécurité. "
-                            f"OSRM (voiture théorique) : {trajet_info['duration_min']:.0f} min."))
-        col_r3.metric("📅 Jours de mission A/R",
-                      f"{jours_mission} jour{'s' if jours_mission > 1 else ''}",
-                      help=f"Nombre de jours nécessaires selon la réglementation TMD "
-                           f"({duree_max:.0f} h de conduite max par jour).")
+                      f"({duree_aller_pratique_min/60:.1f} h)")
+        col_r3.metric("📅 Jours de mission estimés",
+                      f"{jours_mission} jour{'s' if jours_mission > 1 else ''}")
 
-        if dest_data and dest_data.get("distance_ar_km"):
-            diff = distance_ar_reelle - float(dest_data["distance_ar_km"])
-            if abs(diff) > 10:
-                st.caption(f"ℹ️ Écart distance routière vs base : **{diff:+.1f} km**")
+    # ---- Champs éditables : distance, péages, frais de mission ----
+    st.divider()
+    st.subheader("📐 Paramètres de la livraison")
+    st.caption("⚡ Valeurs pré-remplies depuis la base de données. **Modifiez-les si nécessaire** "
+               "pour refléter le trajet réel (itinéraire, péages, hébergement…).")
 
-    # ---- Choix de la distance utilisée pour la tarification ----
-    distance_override = None
-    if mode in ("Rechercher une ville", "Carte interactive") and distance_ar_reelle:
-        # Hors liste : on utilise systématiquement la distance routière réelle
-        distance_override = distance_ar_reelle
-        st.info(f"ℹ️ La tarification utilise la **distance routière réelle** "
-                f"({distance_ar_reelle:.1f} km A/R) calculée via OpenStreetMap.")
-    elif mode == "Choisir dans la liste" and distance_ar_reelle and dest_data:
-        # En mode liste : par défaut distance DB, mais l'utilisateur peut choisir
-        db_dist = float(dest_data.get("distance_ar_km") or 0)
-        use_real = st.toggle(
-            f"Utiliser la distance routière calculée ({distance_ar_reelle:.1f} km) "
-            f"au lieu de la distance de référence ({db_dist:.0f} km) ?",
-            value=False,
-            help="La distance de référence (base de données) est généralement plus fiable "
-                 "car validée historiquement. Activez cette option pour un point de livraison "
-                 "différent ou pour une mise à jour ponctuelle.")
-        if use_real:
-            distance_override = distance_ar_reelle
+    # Valeurs par défaut depuis la base
+    db_distance = float(dest_data.get("distance_ar_km") or 0) if dest_data else 0
+    db_peages = float(dest_data.get("peages_ar") or 0) if dest_data else 0
+    db_frais = float(dest_data.get("frais_mission_unitaire") or 0) if dest_data else 0
 
-    # ---- Carte du trajet ----
+    # Si hors liste et qu'on a une distance OSRM, la proposer comme défaut
+    default_distance = db_distance
+    if mode in ("Rechercher un lieu", "Coordonnées GPS", "Carte interactive") and distance_osrm_ar:
+        default_distance = round(distance_osrm_ar, 1)
+
+    col_d1, col_d2, col_d3 = st.columns(3)
+    input_distance = col_d1.number_input(
+        "Distance A/R (km)",
+        value=default_distance,
+        min_value=0.0, step=10.0, format="%.1f",
+        help=f"Base de données : {db_distance:.0f} km" +
+             (f" — OSRM : {distance_osrm_ar:.1f} km" if distance_osrm_ar else ""))
+    input_peages = col_d2.number_input(
+        "Péages A/R (F CFA)",
+        value=int(db_peages),
+        min_value=0, step=500,
+        help=f"Valeur de référence en base : {db_peages:,.0f} F".replace(",", " "))
+    input_frais = col_d3.number_input(
+        "Frais de mission (F CFA)",
+        value=int(db_frais),
+        min_value=0, step=1000,
+        help=f"Valeur de référence en base : {db_frais:,.0f} F".replace(",", " "))
+
+    # Déterminer les overrides (None = utiliser la valeur DB par défaut)
+    dist_override = input_distance if input_distance != db_distance else None
+    peages_override = float(input_peages) if input_peages != db_peages else None
+    frais_override = float(input_frais) if input_frais != db_frais else None
+
+    # Toujours overrider la distance si hors mode liste
+    if mode != "Choisir dans la liste":
+        dist_override = input_distance
+
+    # ---- Carte du trajet (indicative) ----
     if route_lat is not None and route_lon is not None:
-        with st.expander("🗺️ Visualiser l'itinéraire routier",
+        with st.expander("🗺️ Visualiser l'itinéraire (indicatif — OpenStreetMap)",
                          expanded=(mode != "Carte interactive")):
+            st.caption("⚠️ L'itinéraire affiché est généré automatiquement et peut "
+                       "ne pas correspondre au trajet réellement emprunté par les camions. "
+                       "Les distances et péages officiels sont ceux saisis ci-dessus.")
             m_view = geo.carte_folium(
                 lat=float(route_lat), lon=float(route_lon),
                 route_depuis_garage=True,
@@ -187,12 +239,17 @@ if destination and attelage:
             )
             st_folium(m_view, width=None, height=400, returned_objects=[], key="map_view")
 
-    calc = pricer.calculer(destination, attelage, quantite, autres,
-                           distance_ar_override=distance_override)
+    # ---- Calcul de l'offre ----
+    calc = pricer.calculer(
+        destination, attelage, quantite, autres,
+        distance_ar_override=dist_override,
+        peages_ar_override=peages_override,
+        frais_mission_override=frais_override,
+    )
 
     st.subheader("📊 Détail des charges")
     d1, d2, d3 = st.columns(3)
-    d1.metric("Distance A/R", f"{calc.distance_ar:,.0f} km".replace(",", " "))
+    d1.metric("Distance A/R utilisée", f"{calc.distance_ar:,.0f} km".replace(",", " "))
     d2.metric("Péages A/R", f"{calc.peages_ar:,.0f} F".replace(",", " "))
     d3.metric("Frais mission", f"{calc.frais_mission:,.0f} F".replace(",", " "))
 
@@ -216,9 +273,13 @@ if destination and attelage:
     prix_offert = st.number_input(
         "Prix offert client (F/kg) — laissez 0 pour utiliser le prix plancher",
         value=round(calc.prix_plancher_kg), min_value=0, step=1)
-    calc = pricer.calculer(destination, attelage, quantite, autres,
-                           prix_offert_kg=prix_offert if prix_offert > 0 else None,
-                           distance_ar_override=distance_override)
+    calc = pricer.calculer(
+        destination, attelage, quantite, autres,
+        prix_offert_kg=prix_offert if prix_offert > 0 else None,
+        distance_ar_override=dist_override,
+        peages_ar_override=peages_override,
+        frais_mission_override=frais_override,
+    )
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total charges", f"{calc.total_charges:,.0f} F".replace(",", " "))
