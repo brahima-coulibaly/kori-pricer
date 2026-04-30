@@ -140,13 +140,17 @@ if is_admin:
                         short_name = r["display_name"][:60]
                         if st.button(f"📌 {short_name} ({r['lat']:.4f}, {r['lon']:.4f})",
                                      key=f"verif_pick_{i}", use_container_width=True):
-                            sb().table("destinations").update({
-                                "latitude": r["lat"],
-                                "longitude": r["lon"],
-                            }).eq("id", dest_id).execute()
-                            st.success(f"✅ Coordonnées de **{selected}** mises à jour !")
-                            st.session_state.pop("verif_search_results", None)
-                            st.rerun()
+                            try:
+                                with st.spinner("Mise à jour en cours…"):
+                                    sb().table("destinations").update({
+                                        "latitude": float(r["lat"]),
+                                        "longitude": float(r["lon"]),
+                                    }).eq("id", dest_id).execute()
+                                st.session_state.pop("verif_search_results", None)
+                                st.success(f"✅ **{selected}** mis à jour !")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erreur : {e}")
                 elif "verif_search_results" in st.session_state:
                     st.warning("Aucun résultat trouvé.")
 
@@ -160,12 +164,16 @@ if is_admin:
                 if new_lat is not None and new_lon is not None:
                     if st.button("✅ Enregistrer ces coordonnées", type="primary",
                                  key="verif_save_gps", use_container_width=True):
-                        sb().table("destinations").update({
-                            "latitude": new_lat,
-                            "longitude": new_lon,
-                        }).eq("id", dest_id).execute()
-                        st.success(f"✅ Coordonnées de **{selected}** mises à jour !")
-                        st.rerun()
+                        try:
+                            with st.spinner("Mise à jour en cours…"):
+                                sb().table("destinations").update({
+                                    "latitude": float(new_lat),
+                                    "longitude": float(new_lon),
+                                }).eq("id", dest_id).execute()
+                            st.success(f"✅ **{selected}** mis à jour !")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erreur : {e}")
 
     st.divider()
 
