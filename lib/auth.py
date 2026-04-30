@@ -80,12 +80,27 @@ def current_role() -> str:
     return (p or {}).get("role", "consultation")
 
 
+def _hide_sidebar():
+    """Masque complètement la sidebar et la navigation quand l'utilisateur n'est pas connecté."""
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stSidebarCollapsedControl"] { display: none; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def require_auth():
     if not current_user():
-        st.warning("Veuillez vous connecter.")
+        _hide_sidebar()
+        st.warning("Veuillez vous connecter depuis la [page d'accueil](/).")
         st.stop()
     p = current_profile()
     if not p or not p.get("actif", True):
+        _hide_sidebar()
         st.error("Votre compte est inactif. Contactez un administrateur.")
         st.stop()
 
