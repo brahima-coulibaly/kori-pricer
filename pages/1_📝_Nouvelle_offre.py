@@ -256,14 +256,17 @@ if destination and attelage:
     col_info1, col_info2 = st.columns(2)
     with col_info1:
         st.markdown(f"**SITE DE LIVRAISON** : {destination}")
-        _dist_source = "route OSRM" if (distance_osrm_ar and distance_osrm_ar > 0) else "base de données"
+        if distance_osrm_ar and distance_osrm_ar > 0:
+            _dist_label = f"Distance A/R (km) — route OSRM depuis le garage"
+            _dist_help = (f"Calculée automatiquement via OSRM. "
+                          f"Modifiable si besoin (ex : itinéraire différent).")
+        else:
+            _dist_label = "Distance A/R (km) — saisie manuelle"
+            _dist_help = "Pas de coordonnées GPS. Saisissez la distance manuellement."
         input_distance = st.number_input(
-            f"Distance A/R (km) — source : {_dist_source}",
-            value=default_distance,
+            _dist_label, value=default_distance,
             min_value=0.0, step=10.0, format="%.1f", key="sim_dist",
-            help=f"Distance calculée depuis le garage KORI. "
-                 f"OSRM : {distance_osrm_ar:,.0f} km".replace(",", " ") if distance_osrm_ar
-                 else "Valeur depuis la base de données. Modifiable.")
+            help=_dist_help)
         consommation = params.get("consommation_l_km", 0.5)
         carburant_litres = input_distance * consommation
         st.markdown(f"**CARBURANT** : {carburant_litres:,.0f} L".replace(",", " "))
