@@ -133,9 +133,9 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
     # --- Lettre de voiture ---
     lettre_voiture = float(params.get("lettre_voiture", 2500))
 
-    # --- Charges liées à l'attelage ---
-    charges_fixes_attelage = float(veh.get("charges_admin_livraison") or 0)
-    vt_km_distance = distance_ar * float(veh.get("charges_admin_km") or 0)
+    # --- Charges liées à l'attelage (désactivées) ---
+    charges_fixes_attelage = 0.0
+    vt_km_distance = 0.0
 
     # --- Total charges (hors maintenance sur CA) ---
     total_charges_base = (carburant + peages_ar + pesage + frais_voyage + frais_route +

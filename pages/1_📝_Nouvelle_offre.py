@@ -19,7 +19,6 @@ dests = sb().table("destinations").select(
     "localite,distance_ar_km,peages_ar,frais_mission_unitaire,"
     "frais_voyage,frais_hebergement,latitude,longitude"
 ).order("localite").execute().data or []
-vehs = sb().table("vehicules").select("attelage").eq("actif", True).order("attelage").execute().data or []
 
 mode = st.radio(
     "Mode de saisie",
@@ -129,9 +128,7 @@ elif mode == "Carte interactive":
 # 2. PARAMÈTRES DE L'OPÉRATION
 # =====================================================================
 st.divider()
-_attelages = [v["attelage"] for v in vehs]
-_default_idx = _attelages.index("739LS01-739LS01") if "739LS01-739LS01" in _attelages else 0
-attelage = st.selectbox("Attelage", _attelages, index=_default_idx)
+attelage = "739LS01-739LS01"  # Attelage par défaut
 
 c1, c2 = st.columns(2)
 quantite = c1.number_input("Qté à livrer (kg)", value=28000, min_value=1, step=1000)
