@@ -241,9 +241,11 @@ if destination and attelage:
     db_frais_voyage = float(dest_data.get("frais_voyage") or 0) if dest_data else 0
     db_frais_hebergement = float(dest_data.get("frais_hebergement") or 0) if dest_data else 0
 
-    default_distance = db_distance
-    if mode in ("Rechercher un lieu", "Coordonnées GPS", "Carte interactive") and distance_osrm_ar:
+    # Distance par défaut : OSRM (route réelle depuis le garage) si disponible, sinon base de données
+    if distance_osrm_ar and distance_osrm_ar > 0:
         default_distance = round(distance_osrm_ar, 1)
+    else:
+        default_distance = db_distance
 
     # =====================================================================
     # 4. TABLEAU DE SIMULATION (style TB Excel)
@@ -254,8 +256,14 @@ if destination and attelage:
     col_info1, col_info2 = st.columns(2)
     with col_info1:
         st.markdown(f"**SITE DE LIVRAISON** : {destination}")
-        input_distance = st.number_input("Distance A/R (km)", value=default_distance,
-                                          min_value=0.0, step=10.0, format="%.1f", key="sim_dist")
+        _dist_source = "route OSRM" if (distance_osrm_ar and distance_osrm_ar > 0) else "base de données"
+        input_distance = st.number_input(
+            f"Distance A/R (km) — source : {_dist_source}",
+            value=default_distance,
+            min_value=0.0, step=10.0, format="%.1f", key="sim_dist",
+            help=f"Distance calculée depuis le garage KORI. "
+                 f"OSRM : {distance_osrm_ar:,.0f} km".replace(",", " ") if distance_osrm_ar
+                 else "Valeur depuis la base de données. Modifiable.")
         consommation = params.get("consommation_l_km", 0.5)
         carburant_litres = input_distance * consommation
         st.markdown(f"**CARBURANT** : {carburant_litres:,.0f} L".replace(",", " "))
