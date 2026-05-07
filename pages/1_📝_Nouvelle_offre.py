@@ -1,8 +1,10 @@
-"""Création d'une nouvelle offre commerciale — avec carte, GPS et champs éditables."""
+"""Création d'une nouvelle offre commerciale — aligné TB Simulation livraison."""
 import streamlit as st
+import pandas as pd
 from lib import auth, pricer, geo
 from lib.db import sb
 from lib.pdf import pdf_offre
+from lib.pricer import load_params
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Nouvelle offre — KORI", page_icon="📝", layout="wide")
@@ -83,14 +85,12 @@ elif mode == "Coordonnées GPS":
                                       help="Longitude en degrés décimaux (entre -9.0 et -2.0 pour la Côte d'Ivoire)")
     if input_lat is not None and input_lon is not None:
         gps_lat, gps_lon = input_lat, input_lon
-        # Géocodage inverse pour afficher le nom du lieu
         with st.spinner("Identification du lieu…"):
             adresse = geo.reverse_geocode(gps_lat, gps_lon)
         if adresse:
             st.success(f"📍 Lieu identifié : **{adresse}**")
         else:
             st.info(f"📍 Point GPS : **{gps_lat:.6f}, {gps_lon:.6f}**")
-        # Rattachement à la ville de référence la plus proche
         best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
         if best:
             if ecart < 15:
@@ -157,11 +157,9 @@ if destination and attelage:
         st.caption("Ajoutez des points intermédiaires pour forcer l'itinéraire à passer par "
                    "les bonnes routes. Ex : passer par **Bonoua** au lieu d'Alepe.")
 
-        # Initialiser la liste des waypoints en session
         if "waypoints" not in st.session_state:
             st.session_state["waypoints"] = []
 
-        # Interface d'ajout d'un nouveau waypoint
         wp_mode = st.radio("Ajouter un point via :", ["Ville connue", "Recherche", "Coordonnées GPS"],
                            horizontal=True, key="wp_mode")
 
@@ -217,7 +215,6 @@ if destination and attelage:
                     })
                     st.rerun()
 
-        # Afficher les waypoints actuels
         wps = st.session_state.get("waypoints", [])
         if wps:
             st.markdown("**Points de passage actuels :**")
@@ -251,7 +248,6 @@ if destination and attelage:
 
     # ---- Affichage distance OSRM (indicatif) ----
     if trajet_info:
-        from lib.pricer import load_params
         all_params = load_params()
         vitesse_pl = all_params.get("vitesse_moyenne_pl_kmh", 50)
         duree_max = all_params.get("duree_max_conduite_jour_h", 9)
@@ -271,11 +267,10 @@ if destination and attelage:
         col_r3.metric("📅 Jours de mission estimés",
                       f"{jours_mission} jour{'s' if jours_mission > 1 else ''}")
 
-    # ---- Champs éditables : distance, péages, frais de mission ----
+    # ---- Paramètres de la livraison (éditables) ----
     st.divider()
     st.subheader("📐 Paramètres de la livraison")
-    st.caption("⚡ Valeurs pré-remplies depuis la base de données. **Modifiez-les si nécessaire** "
-               "pour refléter le trajet réel (itinéraire, péages, hébergement…).")
+    st.caption("⚡ Valeurs pré-remplies depuis la base. **Modifiez si nécessaire** pour refléter le trajet réel.")
 
     # Valeurs par défaut depuis la base
     db_distance = float(dest_data.get("distance_ar_km") or 0) if dest_data else 0
@@ -286,6 +281,9 @@ if destination and attelage:
     default_distance = db_distance
     if mode in ("Rechercher un lieu", "Coordonnées GPS", "Carte interactive") and distance_osrm_ar:
         default_distance = round(distance_osrm_ar, 1)
+
+    # Charger les paramètres pour les valeurs par défaut des nouveaux postes
+    params = load_params()
 
     col_d1, col_d2, col_d3 = st.columns(3)
     input_distance = col_d1.number_input(
@@ -299,18 +297,48 @@ if destination and attelage:
         value=int(db_peages),
         min_value=0, step=500,
         help=f"Valeur de référence en base : {db_peages:,.0f} F".replace(",", " "))
-    input_frais = col_d3.number_input(
+    input_frais_mission = col_d3.number_input(
         "Frais de mission (F CFA)",
         value=int(db_frais),
         min_value=0, step=1000,
         help=f"Valeur de référence en base : {db_frais:,.0f} F".replace(",", " "))
 
-    # Déterminer les overrides (None = utiliser la valeur DB par défaut)
+    # Nouveaux postes de charges (alignement TB Simulation)
+    st.markdown("**Autres frais de livraison**")
+    col_f1, col_f2, col_f3 = st.columns(3)
+    input_pesage = col_f1.number_input(
+        "Pesage (F CFA)",
+        value=int(params.get("pesage", 2000)),
+        min_value=0, step=500,
+        help="Frais de pesage au pont-bascule")
+    input_frais_voyage = col_f2.number_input(
+        "Frais de voyage chauffeur (F CFA)",
+        value=int(params.get("frais_voyage", 5000)),
+        min_value=0, step=1000,
+        help="Per diem / indemnité de déplacement du chauffeur")
+    input_frais_route = col_f3.number_input(
+        "Frais de route (F CFA)",
+        value=int(params.get("frais_route", 0)),
+        min_value=0, step=1000,
+        help="Frais divers sur la route (lavage, stationnement, etc.)")
+
+    # Hébergement
+    col_h1, col_h2 = st.columns(2)
+    input_nuits = col_h1.number_input(
+        "Nombre de nuits d'hébergement",
+        value=0, min_value=0, step=1,
+        help="Nombre de nuits d'hébergement pour le chauffeur (livraisons longue distance)")
+    input_cout_nuit = col_h2.number_input(
+        "Coût par nuit (F CFA)",
+        value=int(params.get("hebergement_nuit", 10000)),
+        min_value=0, step=1000,
+        help="Coût d'hébergement par nuit")
+
+    # Déterminer les overrides
     dist_override = input_distance if input_distance != db_distance else None
     peages_override = float(input_peages) if input_peages != db_peages else None
-    frais_override = float(input_frais) if input_frais != db_frais else None
+    frais_override = float(input_frais_mission) if input_frais_mission != db_frais else None
 
-    # Toujours overrider la distance si hors mode liste
     if mode != "Choisir dans la liste":
         dist_override = input_distance
 
@@ -332,15 +360,22 @@ if destination and attelage:
             )
             st_folium(m_view, width=None, height=400, returned_objects=[], key="map_view")
 
-    # ---- Calcul de l'offre ----
+    # ---- Calcul de l'offre (1er passage pour obtenir le prix plancher) ----
     calc = pricer.calculer(
         destination, attelage, quantite, autres,
         distance_ar_override=dist_override,
         peages_ar_override=peages_override,
         frais_mission_override=frais_override,
+        pesage_override=float(input_pesage),
+        frais_voyage_override=float(input_frais_voyage),
+        frais_route_override=float(input_frais_route),
+        nuits_hebergement=input_nuits,
+        cout_hebergement_nuit=float(input_cout_nuit),
     )
 
+    # ---- Détail des charges ----
     st.subheader("📊 Détail des charges")
+
     d1, d2, d3 = st.columns(3)
     d1.metric("Distance A/R utilisée", f"{calc.distance_ar:,.0f} km".replace(",", " "))
     d2.metric("Péages A/R", f"{calc.peages_ar:,.0f} F".replace(",", " "))
@@ -348,30 +383,44 @@ if destination and attelage:
 
     charges = {
         "Carburant": calc.carburant,
-        "Maintenance": calc.maintenance,
         "Péages A/R": calc.peages_ar,
+        "Pesage": calc.pesage,
+        "Frais de voyage chauffeur": calc.frais_voyage,
+        "Frais de route": calc.frais_route,
+        "Hébergement": calc.frais_hebergement,
         "Frais de mission": calc.frais_mission,
-        "Prime voyage": calc.prime_voyage,
+        "Prime de voyage": calc.prime_voyage,
         "Lettre de voiture": calc.lettre_voiture,
-        "Autres dépenses": calc.autres_depenses,
+        "Maintenance": calc.maintenance,
         "Charges fixes attelage": calc.charges_fixes_attelage,
         "VT/km × distance": calc.vt_km_distance,
+        "Autres dépenses": calc.autres_depenses,
     }
-    import pandas as pd
-    df = pd.DataFrame([{"Poste": k, "Montant (F CFA)": round(v)} for k, v in charges.items()])
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    df_charges = pd.DataFrame([{"Poste": k, "Montant (F CFA)": f"{round(v):,}".replace(",", " ")}
+                                for k, v in charges.items() if v > 0])
+    df_charges.loc[len(df_charges)] = {"Poste": "TOTAL CHARGES",
+                                        "Montant (F CFA)": f"{round(calc.total_charges):,}".replace(",", " ")}
+    st.dataframe(df_charges, use_container_width=True, hide_index=True)
 
+    # ---- Prix & marge ----
     st.divider()
     st.subheader("💰 Prix & marge")
     prix_offert = st.number_input(
         "Prix offert client (F/kg) — laissez 0 pour utiliser le prix plancher",
         value=round(calc.prix_plancher_kg), min_value=0, step=1)
+
+    # Recalcul avec le prix offert
     calc = pricer.calculer(
         destination, attelage, quantite, autres,
         prix_offert_kg=prix_offert if prix_offert > 0 else None,
         distance_ar_override=dist_override,
         peages_ar_override=peages_override,
         frais_mission_override=frais_override,
+        pesage_override=float(input_pesage),
+        frais_voyage_override=float(input_frais_voyage),
+        frais_route_override=float(input_frais_route),
+        nuits_hebergement=input_nuits,
+        cout_hebergement_nuit=float(input_cout_nuit),
     )
 
     m1, m2, m3, m4 = st.columns(4)
@@ -380,8 +429,13 @@ if destination and attelage:
     m3.metric("CA total", f"{calc.ca_total:,.0f} F".replace(",", " "))
     m4.metric("Taux de marge", f"{calc.taux_marge*100:.1f} %")
 
-    from lib.pricer import load_params
-    params = load_params()
+    # KPIs supplémentaires (alignement TB Simulation)
+    k1, k2, k3 = st.columns(3)
+    k1.metric("F CFA / km", f"{calc.fcfa_par_km:,.0f}".replace(",", " "))
+    k2.metric("Taux carburant / CA", f"{calc.taux_carburant_ca*100:.1f} %")
+    k3.metric("Coût / kg", f"{calc.cout_par_kg:,.0f} F/kg".replace(",", " "))
+
+    # Indicateur de marge
     cible = params.get("marge_cible", 0.75)
     seuil_bas = params.get("seuil_marge_basse", 0.60)
     seuil_crit = params.get("seuil_marge_critique", 0.375)
@@ -394,6 +448,52 @@ if destination and attelage:
     else:
         st.error(f"🛑 Marge insuffisante — sous le seuil critique : {seuil_crit*100:.0f} %")
 
+    # ---- Comparaison multi-scénarios ----
+    st.divider()
+    st.subheader("📈 Comparaison de scénarios de prix")
+    st.caption("Comparez différents prix au kg pour évaluer la marge et le chiffre d'affaires.")
+
+    col_s1, col_s2 = st.columns([3, 1])
+    scenarios_text = col_s1.text_input(
+        "Prix à comparer (F/kg, séparés par des virgules)",
+        value=f"{max(1, round(calc.prix_plancher_kg) - 2)}, {round(calc.prix_plancher_kg)}, "
+              f"{round(calc.prix_plancher_kg) + 2}, {round(calc.prix_plancher_kg) + 5}",
+        help="Entrez les prix unitaires à comparer, séparés par des virgules.")
+
+    try:
+        prix_scenarios = sorted(set(int(p.strip()) for p in scenarios_text.split(",") if p.strip()))
+    except ValueError:
+        prix_scenarios = []
+        st.warning("Format invalide. Entrez des nombres séparés par des virgules.")
+
+    if prix_scenarios:
+        rows_scenario = []
+        for px in prix_scenarios:
+            sc = pricer.calculer(
+                destination, attelage, quantite, autres,
+                prix_offert_kg=px,
+                distance_ar_override=dist_override,
+                peages_ar_override=peages_override,
+                frais_mission_override=frais_override,
+                pesage_override=float(input_pesage),
+                frais_voyage_override=float(input_frais_voyage),
+                frais_route_override=float(input_frais_route),
+                nuits_hebergement=input_nuits,
+                cout_hebergement_nuit=float(input_cout_nuit),
+            )
+            rows_scenario.append({
+                "Prix (F/kg)": f"{px:,}".replace(",", " "),
+                "CA total (F)": f"{round(sc.ca_total):,}".replace(",", " "),
+                "Total charges (F)": f"{round(sc.total_charges):,}".replace(",", " "),
+                "Marge brute (F)": f"{round(sc.marge_brute):,}".replace(",", " "),
+                "Taux marge": f"{sc.taux_marge*100:.1f} %",
+                "F CFA/km": f"{round(sc.fcfa_par_km):,}".replace(",", " "),
+                "Carburant/CA": f"{sc.taux_carburant_ca*100:.1f} %",
+            })
+        df_scenarios = pd.DataFrame(rows_scenario)
+        st.dataframe(df_scenarios, use_container_width=True, hide_index=True)
+
+    # ---- Enregistrement ----
     st.divider()
     notes = st.text_area("Notes (optionnel)")
     statut = st.selectbox("Statut", ["brouillon", "valide", "envoye"])

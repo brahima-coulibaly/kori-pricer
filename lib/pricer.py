@@ -1,4 +1,4 @@
-"""Logique de calcul du pricer — portage des formules Excel."""
+"""Logique de calcul du pricer — aligné sur le TB Simulation livraison."""
 from __future__ import annotations
 import math
 from dataclasses import dataclass, asdict
@@ -15,6 +15,10 @@ class OffreCalcul:
     # Champs calculés
     distance_ar: float = 0.0
     peages_ar: float = 0.0
+    pesage: float = 0.0
+    frais_voyage: float = 0.0
+    frais_route: float = 0.0
+    frais_hebergement: float = 0.0
     frais_mission: float = 0.0
     carburant: float = 0.0
     maintenance: float = 0.0
@@ -28,6 +32,10 @@ class OffreCalcul:
     ca_total: float = 0.0
     marge_brute: float = 0.0
     taux_marge: float = 0.0
+    # KPIs
+    fcfa_par_km: float = 0.0
+    taux_carburant_ca: float = 0.0
+    cout_par_kg: float = 0.0
 
     def to_dict(self):
         return asdict(self)
@@ -49,7 +57,6 @@ def get_vehicule(attelage: str) -> dict | None:
 
 
 def prime_par_distance(distance_ar_km: float, params: dict) -> float:
-    # Règle Excel : 0–300 / 301–600 / 601+ sur la distance A/R
     d = distance_ar_km or 0
     if d <= 300:
         return params.get("prime_0_300", 5000)
@@ -63,17 +70,33 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
              mode: str = "liste",
              distance_ar_override: float | None = None,
              peages_ar_override: float | None = None,
-             frais_mission_override: float | None = None) -> OffreCalcul:
-    """Calcule une offre.
+             frais_mission_override: float | None = None,
+             pesage_override: float | None = None,
+             frais_voyage_override: float | None = None,
+             frais_route_override: float | None = None,
+             nuits_hebergement: int = 0,
+             cout_hebergement_nuit: float | None = None) -> OffreCalcul:
+    """Calcule une offre — aligné sur le TB Simulation livraison Excel.
 
-    Les paramètres *_override permettent au commercial d'ajuster manuellement
-    la distance A/R, les péages et les frais de mission pour chaque offre.
-    Par défaut, les valeurs de la table destinations sont utilisées.
+    Postes de charges (comme dans le fichier Excel) :
+    - Carburant : (distance_ar / 2) litres × prix_carburant
+    - Péages A/R
+    - Pesage
+    - Frais de voyage (per diem chauffeur)
+    - Frais de route
+    - Prime de voyage (par palier de distance)
+    - Frais d'hébergement (nuits × coût/nuit)
+    - Frais de mission
+    - Lettre de voiture
+    - Coût de maintenance (% du CA ou par km)
+    - Autres dépenses
+    - Charges fixes attelage + VT/km
     """
     params = load_params()
     dest = get_destination(destination) or {}
     veh = get_vehicule(attelage) or {}
 
+    # --- Valeurs de base (overridables) ---
     distance_ar = (float(distance_ar_override)
                    if distance_ar_override is not None and distance_ar_override > 0
                    else float(dest.get("distance_ar_km") or 0))
@@ -84,39 +107,102 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
                      if frais_mission_override is not None and frais_mission_override >= 0
                      else float(dest.get("frais_mission_unitaire") or 0))
 
-    carburant = distance_ar * float(params.get("consommation_l_km", 0.5)) * float(params.get("prix_carburant", 675))
-    maintenance = distance_ar * float(params.get("maintenance_km", 346))
+    # --- Nouveaux postes de charges ---
+    pesage = (float(pesage_override) if pesage_override is not None and pesage_override >= 0
+              else float(params.get("pesage", 2000)))
+    frais_voyage = (float(frais_voyage_override) if frais_voyage_override is not None
+                    and frais_voyage_override >= 0
+                    else float(params.get("frais_voyage", 5000)))
+    frais_route = (float(frais_route_override) if frais_route_override is not None
+                   and frais_route_override >= 0
+                   else float(params.get("frais_route", 0)))
+
+    # Hébergement : nombre de nuits × coût par nuit
+    cout_nuit = (float(cout_hebergement_nuit) if cout_hebergement_nuit is not None
+                 else float(params.get("hebergement_nuit", 10000)))
+    frais_hebergement = nuits_hebergement * cout_nuit
+
+    # --- Carburant (formule Excel : distance_ar/2 = litres, × prix/litre) ---
+    prix_carburant = float(params.get("prix_carburant", 675))
+    consommation = float(params.get("consommation_l_km", 0.5))
+    carburant = distance_ar * consommation * prix_carburant
+
+    # --- Prime de voyage (par palier) ---
     prime_voyage = prime_par_distance(distance_ar, params)
+
+    # --- Lettre de voiture ---
     lettre_voiture = float(params.get("lettre_voiture", 2500))
+
+    # --- Charges liées à l'attelage ---
     charges_fixes_attelage = float(veh.get("charges_admin_livraison") or 0)
     vt_km_distance = distance_ar * float(veh.get("charges_admin_km") or 0)
 
-    total_charges = (carburant + maintenance + peages_ar + frais_mission +
-                     prime_voyage + lettre_voiture + autres_depenses +
-                     charges_fixes_attelage + vt_km_distance)
+    # --- Total charges (hors maintenance sur CA) ---
+    total_charges_base = (carburant + peages_ar + pesage + frais_voyage + frais_route +
+                          frais_hebergement + frais_mission + prime_voyage +
+                          lettre_voiture + autres_depenses +
+                          charges_fixes_attelage + vt_km_distance)
 
-    # Prix plancher : interpretation — marge cible 75% signifie couverture charges = 25% du CA
-    # donc prix plancher = total_charges / (1 - marge_cible) / quantite
-    marge_cible = float(params.get("marge_cible", 0.75))
-    ratio = max(1 - marge_cible, 0.0001)
-    prix_plancher_kg = (total_charges / ratio) / max(quantite_kg, 1)
+    # --- Maintenance : % du CA si paramètre disponible, sinon par km ---
+    taux_maintenance_ca = params.get("maintenance_pct_ca", 0)
+    maintenance_km = float(params.get("maintenance_km", 0))
 
-    if prix_offert_kg is None or prix_offert_kg <= 0:
-        prix_offert_kg = prix_plancher_kg
+    # On calcule d'abord sans maintenance pour déterminer le prix plancher provisoire
+    # puis on ajuste avec la maintenance
+    if taux_maintenance_ca > 0:
+        # Maintenance = % du CA → on l'intègre dans le calcul du prix plancher
+        # total_charges = total_charges_base + taux_maintenance_ca × CA
+        # CA = prix × qté
+        # marge = CA - total_charges = CA × (1 - taux_maintenance_ca) - total_charges_base
+        # Pour le prix plancher : marge / CA = marge_cible
+        # CA × (1 - taux_maintenance_ca) - total_charges_base = marge_cible × CA
+        # CA × (1 - taux_maintenance_ca - marge_cible) = total_charges_base
+        marge_cible = float(params.get("marge_cible", 0.75))
+        denom = max(1 - taux_maintenance_ca - marge_cible, 0.0001)
+        ca_plancher = total_charges_base / denom
+        prix_plancher_kg = ca_plancher / max(quantite_kg, 1)
 
-    ca_total = prix_offert_kg * quantite_kg
+        if prix_offert_kg is None or prix_offert_kg <= 0:
+            prix_offert_kg = prix_plancher_kg
+
+        ca_total = prix_offert_kg * quantite_kg
+        maintenance = ca_total * taux_maintenance_ca
+    else:
+        # Maintenance par km (ancien mode)
+        maintenance = distance_ar * maintenance_km
+        total_with_maint = total_charges_base + maintenance
+
+        marge_cible = float(params.get("marge_cible", 0.75))
+        ratio = max(1 - marge_cible, 0.0001)
+        prix_plancher_kg = (total_with_maint / ratio) / max(quantite_kg, 1)
+
+        if prix_offert_kg is None or prix_offert_kg <= 0:
+            prix_offert_kg = prix_plancher_kg
+
+        ca_total = prix_offert_kg * quantite_kg
+
+    total_charges = total_charges_base + maintenance
     marge_brute = ca_total - total_charges
     taux_marge = (marge_brute / ca_total) if ca_total else 0
+
+    # --- KPIs ---
+    fcfa_par_km = (ca_total / distance_ar) if distance_ar else 0
+    taux_carburant_ca = (carburant / ca_total) if ca_total else 0
+    cout_par_kg = (total_charges / max(quantite_kg, 1))
 
     return OffreCalcul(
         destination=destination, attelage=attelage, quantite_kg=quantite_kg,
         autres_depenses=autres_depenses, mode=mode,
-        distance_ar=distance_ar, peages_ar=peages_ar, frais_mission=frais_mission,
+        distance_ar=distance_ar, peages_ar=peages_ar, pesage=pesage,
+        frais_voyage=frais_voyage, frais_route=frais_route,
+        frais_hebergement=frais_hebergement, frais_mission=frais_mission,
         carburant=carburant, maintenance=maintenance, prime_voyage=prime_voyage,
         lettre_voiture=lettre_voiture, charges_fixes_attelage=charges_fixes_attelage,
         vt_km_distance=vt_km_distance, total_charges=total_charges,
         prix_plancher_kg=prix_plancher_kg, prix_offert_kg=prix_offert_kg,
         ca_total=ca_total, marge_brute=marge_brute, taux_marge=taux_marge,
+        fcfa_par_km=fcfa_par_km, taux_carburant_ca=taux_carburant_ca,
+        cout_par_kg=cout_par_kg,
     )
 
 
@@ -143,7 +229,6 @@ def ville_la_plus_proche(lat: float, lon: float) -> tuple[dict | None, float]:
 
 def generer_numero_offre() -> str:
     from datetime import datetime
-    # Format : KT-AAAAMMJJ-NNNN
     today = datetime.now().strftime("%Y%m%d")
     res = sb().table("offres").select("numero").like("numero", f"KT-{today}-%").execute()
     n = len(res.data or []) + 1
