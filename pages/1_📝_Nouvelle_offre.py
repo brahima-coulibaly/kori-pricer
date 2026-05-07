@@ -271,8 +271,7 @@ if destination and attelage:
 
     with col_info2:
         taux_maint = params.get("maintenance_pct_ca", 0.0385)
-        facteur_maint = params.get("facteur_maintenance", 1.1)
-        st.markdown(f"**Coût maintenance / CA** : {taux_maint*100:.2f} % × {facteur_maint}")
+        st.markdown(f"**Coût maintenance / CA** : {taux_maint*100:.2f} %")
 
     st.divider()
 
@@ -408,7 +407,7 @@ if destination and attelage:
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
     col_el.markdown("Coût de maintenance")
     col_qty.markdown(f"{calc.ca_total:,.0f}".replace(",", " "))
-    taux_eff = taux_maint * facteur_maint
+    taux_eff = taux_maint
     col_pu.markdown(f"{taux_eff*100:.2f} %")
     col_mt.markdown(f"**{calc.maintenance:,.0f}**".replace(",", " "))
 

@@ -149,12 +149,9 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
 
     # On calcule d'abord sans maintenance pour déterminer le prix plancher provisoire
     # puis on ajuste avec la maintenance
-    # Facteur multiplicateur maintenance (Excel : × 1.1)
-    facteur_maintenance = float(params.get("facteur_maintenance", 1.1))
-
     if taux_maintenance_ca > 0:
-        # Maintenance = CA × taux × facteur (formule Excel : =+C23*D23*1.1)
-        taux_effectif = taux_maintenance_ca * facteur_maintenance
+        # Maintenance = CA × taux (3,85%)
+        taux_effectif = taux_maintenance_ca
         marge_cible = float(params.get("marge_cible", 0.75))
         denom = max(1 - taux_effectif - marge_cible, 0.0001)
         ca_plancher = total_charges_base / denom
