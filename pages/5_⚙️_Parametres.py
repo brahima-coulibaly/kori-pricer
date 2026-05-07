@@ -12,6 +12,9 @@ st.title("⚙️ Paramètres de tarification")
 
 rows = sb().table("parametres").select("*").order("cle").execute().data or []
 df = pd.DataFrame(rows)
+# Masquer les paramètres gérés directement dans le formulaire d'offre
+HIDDEN_PARAMS = ["frais_voyage", "hebergement_nuit"]
+df = df[~df["cle"].isin(HIDDEN_PARAMS)]
 
 if is_admin:
     st.warning("Ces valeurs impactent TOUTES les offres futures. Modifiez avec précaution.")

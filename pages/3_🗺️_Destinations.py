@@ -118,7 +118,7 @@ if is_admin:
             else:
                 st.write("📍 Coordonnées GPS : **—**")
 
-            # Champs éditables : distance, péages, frais de mission
+            # Champs éditables : distance, péages, frais de mission, frais voyage, hébergement
             st.markdown("**📐 Données de la destination**")
             edit_dist = st.number_input("Distance A/R (km)", value=float(cur_dist),
                                          min_value=0.0, step=10.0, format="%.1f", key="verif_dist")
@@ -126,12 +126,20 @@ if is_admin:
                                            min_value=0, step=500, key="verif_peages")
             edit_frais = st.number_input("Frais de mission (F CFA)", value=int(cur_frais),
                                           min_value=0, step=1000, key="verif_frais")
+            cur_fv = dest_row.get("frais_voyage", 0) or 0
+            cur_fh = dest_row.get("frais_hebergement", 0) or 0
+            edit_fv = st.number_input("Frais de voyage chauffeur (F CFA)",
+                                       value=int(cur_fv), min_value=0, step=1000, key="verif_fv")
+            edit_fh = st.number_input("Hébergement (F CFA)",
+                                       value=int(cur_fh), min_value=0, step=1000, key="verif_fh")
 
             # Bouton de sauvegarde si quelque chose a changé
             dist_changed = edit_dist != float(cur_dist)
             peages_changed = edit_peages != int(cur_peages)
             frais_changed = edit_frais != int(cur_frais)
-            if dist_changed or peages_changed or frais_changed:
+            fv_changed = edit_fv != int(cur_fv)
+            fh_changed = edit_fh != int(cur_fh)
+            if dist_changed or peages_changed or frais_changed or fv_changed or fh_changed:
                 if st.button("💾 Enregistrer les modifications", type="primary",
                              key="verif_save_data", use_container_width=True):
                     try:
@@ -143,6 +151,10 @@ if is_admin:
                                 payload["peages_ar"] = float(edit_peages)
                             if frais_changed:
                                 payload["frais_mission_unitaire"] = float(edit_frais)
+                            if fv_changed:
+                                payload["frais_voyage"] = float(edit_fv)
+                            if fh_changed:
+                                payload["frais_hebergement"] = float(edit_fh)
                             sb().table("destinations").update(payload).eq("id", dest_id).execute()
                         st.success(f"✅ **{selected}** mis à jour !")
                         st.rerun()

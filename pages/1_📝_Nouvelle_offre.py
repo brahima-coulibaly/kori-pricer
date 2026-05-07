@@ -13,7 +13,7 @@ auth.require_role("commercial", "manager", "admin")
 st.title("📝 Nouvelle offre commerciale")
 
 # Chargement des listes
-dests = sb().table("destinations").select("localite,distance_ar_km,peages_ar,frais_mission_unitaire,latitude,longitude").order("localite").execute().data or []
+dests = sb().table("destinations").select("localite,distance_ar_km,peages_ar,frais_mission_unitaire,frais_voyage,frais_hebergement,latitude,longitude").order("localite").execute().data or []
 vehs = sb().table("vehicules").select("attelage").eq("actif", True).order("attelage").execute().data or []
 
 mode = st.radio(
@@ -303,9 +303,13 @@ if destination and attelage:
         min_value=0, step=1000,
         help=f"Valeur de référence en base : {db_frais:,.0f} F".replace(",", " "))
 
+    # Valeurs par défaut depuis la destination pour frais voyage et hébergement
+    db_frais_voyage = float(dest_data.get("frais_voyage") or 0) if dest_data else 0
+    db_frais_hebergement = float(dest_data.get("frais_hebergement") or 0) if dest_data else 0
+
     # Nouveaux postes de charges (alignement TB Simulation)
     st.markdown("**Autres frais de livraison**")
-    col_f1, col_f2, col_f3 = st.columns(3)
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     input_pesage = col_f1.number_input(
         "Pesage (F CFA)",
         value=int(params.get("pesage", 2000)),
@@ -313,26 +317,19 @@ if destination and attelage:
         help="Frais de pesage au pont-bascule")
     input_frais_voyage = col_f2.number_input(
         "Frais de voyage chauffeur (F CFA)",
-        value=int(params.get("frais_voyage", 5000)),
+        value=int(db_frais_voyage),
         min_value=0, step=1000,
-        help="Per diem / indemnité de déplacement du chauffeur")
-    input_frais_route = col_f3.number_input(
+        help="Per diem chauffeur — valeur pré-remplie depuis la destination")
+    input_frais_hebergement = col_f3.number_input(
+        "Hébergement (F CFA)",
+        value=int(db_frais_hebergement),
+        min_value=0, step=1000,
+        help="Frais d'hébergement — valeur pré-remplie depuis la destination")
+    input_frais_route = col_f4.number_input(
         "Frais de route (F CFA)",
         value=int(params.get("frais_route", 0)),
         min_value=0, step=1000,
         help="Frais divers sur la route (lavage, stationnement, etc.)")
-
-    # Hébergement
-    col_h1, col_h2 = st.columns(2)
-    input_nuits = col_h1.number_input(
-        "Nombre de nuits d'hébergement",
-        value=0, min_value=0, step=1,
-        help="Nombre de nuits d'hébergement pour le chauffeur (livraisons longue distance)")
-    input_cout_nuit = col_h2.number_input(
-        "Coût par nuit (F CFA)",
-        value=int(params.get("hebergement_nuit", 10000)),
-        min_value=0, step=1000,
-        help="Coût d'hébergement par nuit")
 
     # Déterminer les overrides
     dist_override = input_distance if input_distance != db_distance else None
@@ -369,8 +366,7 @@ if destination and attelage:
         pesage_override=float(input_pesage),
         frais_voyage_override=float(input_frais_voyage),
         frais_route_override=float(input_frais_route),
-        nuits_hebergement=input_nuits,
-        cout_hebergement_nuit=float(input_cout_nuit),
+        cout_hebergement_nuit=float(input_frais_hebergement),
     )
 
     # ---- Détail des charges ----
@@ -419,8 +415,7 @@ if destination and attelage:
         pesage_override=float(input_pesage),
         frais_voyage_override=float(input_frais_voyage),
         frais_route_override=float(input_frais_route),
-        nuits_hebergement=input_nuits,
-        cout_hebergement_nuit=float(input_cout_nuit),
+        cout_hebergement_nuit=float(input_frais_hebergement),
     )
 
     m1, m2, m3, m4 = st.columns(4)
@@ -478,6 +473,7 @@ if destination and attelage:
                 pesage_override=float(input_pesage),
                 frais_voyage_override=float(input_frais_voyage),
                 frais_route_override=float(input_frais_route),
+                cout_hebergement_nuit=float(input_frais_hebergement),
                 nuits_hebergement=input_nuits,
                 cout_hebergement_nuit=float(input_cout_nuit),
             )

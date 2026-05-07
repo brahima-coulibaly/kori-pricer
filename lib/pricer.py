@@ -112,15 +112,15 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
               else float(params.get("pesage", 2000)))
     frais_voyage = (float(frais_voyage_override) if frais_voyage_override is not None
                     and frais_voyage_override >= 0
-                    else float(params.get("frais_voyage", 5000)))
+                    else float(dest.get("frais_voyage") or 0))
     frais_route = (float(frais_route_override) if frais_route_override is not None
                    and frais_route_override >= 0
                    else float(params.get("frais_route", 0)))
 
-    # Hébergement : nombre de nuits × coût par nuit
-    cout_nuit = (float(cout_hebergement_nuit) if cout_hebergement_nuit is not None
-                 else float(params.get("hebergement_nuit", 10000)))
-    frais_hebergement = nuits_hebergement * cout_nuit
+    # Hébergement : valeur depuis la destination (pas les paramètres globaux)
+    frais_hebergement = (float(cout_hebergement_nuit) if cout_hebergement_nuit is not None
+                         and cout_hebergement_nuit >= 0
+                         else float(dest.get("frais_hebergement") or 0))
 
     # --- Carburant (formule Excel : distance_ar/2 = litres, × prix/litre) ---
     prix_carburant = float(params.get("prix_carburant", 675))
