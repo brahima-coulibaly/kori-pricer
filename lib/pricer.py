@@ -149,16 +149,14 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
 
     # On calcule d'abord sans maintenance pour déterminer le prix plancher provisoire
     # puis on ajuste avec la maintenance
+    # Facteur multiplicateur maintenance (Excel : × 1.1)
+    facteur_maintenance = float(params.get("facteur_maintenance", 1.1))
+
     if taux_maintenance_ca > 0:
-        # Maintenance = % du CA → on l'intègre dans le calcul du prix plancher
-        # total_charges = total_charges_base + taux_maintenance_ca × CA
-        # CA = prix × qté
-        # marge = CA - total_charges = CA × (1 - taux_maintenance_ca) - total_charges_base
-        # Pour le prix plancher : marge / CA = marge_cible
-        # CA × (1 - taux_maintenance_ca) - total_charges_base = marge_cible × CA
-        # CA × (1 - taux_maintenance_ca - marge_cible) = total_charges_base
+        # Maintenance = CA × taux × facteur (formule Excel : =+C23*D23*1.1)
+        taux_effectif = taux_maintenance_ca * facteur_maintenance
         marge_cible = float(params.get("marge_cible", 0.75))
-        denom = max(1 - taux_maintenance_ca - marge_cible, 0.0001)
+        denom = max(1 - taux_effectif - marge_cible, 0.0001)
         ca_plancher = total_charges_base / denom
         prix_plancher_kg = ca_plancher / max(quantite_kg, 1)
 
@@ -166,7 +164,7 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
             prix_offert_kg = prix_plancher_kg
 
         ca_total = prix_offert_kg * quantite_kg
-        maintenance = ca_total * taux_maintenance_ca
+        maintenance = ca_total * taux_effectif
     else:
         # Maintenance par km (ancien mode)
         maintenance = distance_ar * maintenance_km
