@@ -474,8 +474,6 @@ if destination and attelage:
                 frais_voyage_override=float(input_frais_voyage),
                 frais_route_override=float(input_frais_route),
                 cout_hebergement_nuit=float(input_frais_hebergement),
-                nuits_hebergement=input_nuits,
-                cout_hebergement_nuit=float(input_cout_nuit),
             )
             rows_scenario.append({
                 "Prix (F/kg)": f"{px:,}".replace(",", " "),
