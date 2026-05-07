@@ -144,7 +144,7 @@ def calculer(destination: str, attelage: str, quantite_kg: float,
                           charges_fixes_attelage + vt_km_distance)
 
     # --- Maintenance : % du CA si paramètre disponible, sinon par km ---
-    taux_maintenance_ca = params.get("maintenance_pct_ca", 0)
+    taux_maintenance_ca = params.get("maintenance_pct_ca", 0.0385)
     maintenance_km = float(params.get("maintenance_km", 0))
 
     # On calcule d'abord sans maintenance pour déterminer le prix plancher provisoire

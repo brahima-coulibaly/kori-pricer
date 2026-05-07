@@ -270,7 +270,7 @@ if destination and attelage:
         st.markdown(f"**Qté à livrer** : {quantite:,} kg".replace(",", " "))
 
     with col_info2:
-        taux_maint = params.get("maintenance_pct_ca", 0)
+        taux_maint = params.get("maintenance_pct_ca", 0.0385)
         facteur_maint = params.get("facteur_maintenance", 1.1)
         st.markdown(f"**Coût maintenance / CA** : {taux_maint*100:.2f} % × {facteur_maint}")
 

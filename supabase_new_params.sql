@@ -9,7 +9,7 @@ INSERT INTO public.parametres (cle, valeur, unite, description) VALUES
     ('frais_voyage', 5000, 'F CFA', 'Per diem / indemnité de déplacement chauffeur'),
     ('frais_route', 0, 'F CFA', 'Frais divers route (lavage, stationnement…)'),
     ('hebergement_nuit', 10000, 'F CFA/nuit', 'Coût hébergement par nuit pour le chauffeur'),
-    ('maintenance_pct_ca', 0, '%', 'Taux de maintenance en % du CA (0 = mode par km)')
+    ('maintenance_pct_ca', 0.0385, '%', 'Taux de maintenance en % du CA (3.85%)')
 ON CONFLICT (cle) DO UPDATE SET
     valeur = EXCLUDED.valeur,
     unite = EXCLUDED.unite,
