@@ -177,18 +177,22 @@ def nombre_jours_mission(duree_aller_min: float, duree_max_jour_h: float = 9) ->
 
 # ---------- Détection des péages sur l'itinéraire ----------
 
-def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 2.5) -> list[dict]:
-    """Détecte quels postes de péage traversés par un itinéraire OSRM.
+def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.0,
+                                diagnostic: bool = False) -> list[dict] | tuple[list[dict], list[dict]]:
+    """Détecte quels postes de péage sont traversés par un itinéraire OSRM.
 
     geometry : liste de [lat, lon] constituant la polyline du trajet.
     rayon_km : distance max entre un point de la route et un péage pour
-               considérer qu'il est traversé (défaut 2.5 km — précis).
+               considérer qu'il est traversé (défaut 5 km).
+    diagnostic : si True, retourne aussi la liste de TOUS les péages avec
+                 leur distance min à la route (pour le calibrage GPS).
 
     Chaque péage peut avoir un rayon_detection_km personnalisé en base
     (ex : rayon réduit pour les ponts urbains). Sinon le rayon par défaut
     est utilisé.
 
-    Retourne la liste des péages détectés avec leur tarif, triés dans l'ordre du trajet.
+    Retourne la liste des péages détectés (triés par ordre du trajet).
+    Si diagnostic=True, retourne (détectés, tous_avec_distances).
     """
     from .db import sb
     import math
@@ -196,6 +200,8 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 2.
     # Charger tous les péages actifs
     rows = sb().table("peages").select("*").eq("actif", True).execute().data or []
     if not rows or not geometry:
+        if diagnostic:
+            return [], []
         return []
 
     def _haversine(lat1, lon1, lat2, lon2):
@@ -206,12 +212,13 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 2.
         a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
         return 2 * R * math.asin(math.sqrt(a))
 
-    # Échantillonner la géométrie plus densément (1 point sur 3) pour ne rien rater
-    sample = geometry[::3]
+    # Échantillonner la géométrie densément (1 point sur 2) pour ne rien rater
+    sample = geometry[::2]
     if geometry[-1] not in sample:
         sample.append(geometry[-1])
 
     peages_detectes = []
+    tous_peages = []  # Pour le diagnostic
     for peage in rows:
         plat = peage.get("latitude")
         plon = peage.get("longitude")
@@ -225,23 +232,38 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 2.
         # Trouver le point le plus proche sur le trajet
         min_dist = float("inf")
         min_idx = 0
+        best_pt = None
         for i, pt in enumerate(sample):
             d = _haversine(pt[0], pt[1], plat, plon)
             if d < min_dist:
                 min_dist = d
                 min_idx = i
+                best_pt = pt
+
+        info = {
+            "nom": peage["nom"],
+            "axe": peage["axe"],
+            "tarif": float(peage["tarif_classe4"]),
+            "distance_route_km": round(min_dist, 1),
+            "ordre": min_idx,
+            "lat_peage": plat,
+            "lon_peage": plon,
+            "lat_route": best_pt[0] if best_pt else None,
+            "lon_route": best_pt[1] if best_pt else None,
+            "rayon": rayon_peage,
+            "detecte": min_dist <= rayon_peage,
+        }
 
         if min_dist <= rayon_peage:
-            peages_detectes.append({
-                "nom": peage["nom"],
-                "axe": peage["axe"],
-                "tarif": float(peage["tarif_classe4"]),
-                "distance_route_km": round(min_dist, 1),
-                "ordre": min_idx,  # position relative sur le trajet
-            })
+            peages_detectes.append(info)
+        tous_peages.append(info)
 
     # Trier par ordre d'apparition sur le trajet
     peages_detectes.sort(key=lambda x: x["ordre"])
+    tous_peages.sort(key=lambda x: x["distance_route_km"])
+
+    if diagnostic:
+        return peages_detectes, tous_peages
     return peages_detectes
 
 

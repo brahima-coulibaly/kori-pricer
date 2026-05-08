@@ -319,9 +319,11 @@ if destination and attelage:
 
     # --- Péages (détection automatique sur l'itinéraire OSRM) ---
     peages_detectes = []
+    tous_peages_diag = []
     peages_total_aller = 0
     if trajet_info and trajet_info.get("geometry"):
-        peages_detectes = geo.detecter_peages_sur_trajet(trajet_info["geometry"])
+        peages_detectes, tous_peages_diag = geo.detecter_peages_sur_trajet(
+            trajet_info["geometry"], diagnostic=True)
         peages_total_aller = sum(p["tarif"] for p in peages_detectes)
 
     peages_total_ar = peages_total_aller * 2  # Aller + retour
@@ -347,6 +349,25 @@ if destination and attelage:
             for p in peages_detectes:
                 st.markdown(f"- **{p['nom']}** ({p['axe']}) — {p['tarif']:,.0f} F/passage — _{p['distance_route_km']:.1f} km de la route_".replace(",", " "))
             st.caption(f"Total aller : {peages_total_aller:,.0f} F — **Total A/R : {peages_total_ar:,.0f} F**".replace(",", " "))
+
+    # Diagnostic péages (admin uniquement) — aide à corriger les coordonnées GPS
+    if tous_peages_diag and auth.current_role() == "admin":
+        with st.expander("🔧 Diagnostic péages — distances à la route (admin)", expanded=False):
+            st.caption("Distance entre chaque péage et le point le plus proche de l'itinéraire OSRM. "
+                       "Si un péage devrait être détecté mais ne l'est pas, ses coordonnées GPS "
+                       "sont probablement incorrectes. Corrigez-les dans la page **Péages**.")
+            diag_rows = []
+            for p in tous_peages_diag:
+                diag_rows.append({
+                    "Statut": "✅" if p["detecte"] else "❌",
+                    "Péage": p["nom"],
+                    "Axe": p["axe"],
+                    "Dist. route (km)": p["distance_route_km"],
+                    "Rayon (km)": p["rayon"],
+                    "GPS péage": f"{p['lat_peage']:.4f}, {p['lon_peage']:.4f}",
+                    "Pt route proche": f"{p['lat_route']:.4f}, {p['lon_route']:.4f}" if p["lat_route"] else "—",
+                })
+            st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
 
     # --- Frais de route ---
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
