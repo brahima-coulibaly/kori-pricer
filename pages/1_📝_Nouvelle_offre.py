@@ -239,6 +239,12 @@ if destination and attelage:
     else:
         default_distance = db_distance
 
+    # Forcer la mise à jour du champ distance quand la destination change
+    _dest_key = f"{destination}_{mode}_{len(st.session_state.get('waypoints', []))}"
+    if st.session_state.get("_last_dest_key") != _dest_key:
+        st.session_state["_last_dest_key"] = _dest_key
+        st.session_state.pop("sim_dist", None)
+
     # =====================================================================
     # 4. TABLEAU DE SIMULATION (style TB Excel)
     # =====================================================================
