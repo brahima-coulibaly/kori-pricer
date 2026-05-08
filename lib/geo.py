@@ -175,6 +175,69 @@ def nombre_jours_mission(duree_aller_min: float, duree_max_jour_h: float = 9) ->
     return max(1, math.ceil(heures_ar / duree_max_jour_h))
 
 
+# ---------- Détection des péages sur l'itinéraire ----------
+
+def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.0) -> list[dict]:
+    """Détecte quels postes de péage sont traversés par un itinéraire OSRM.
+
+    geometry : liste de [lat, lon] constituant la polyline du trajet.
+    rayon_km : distance max entre un point de la route et un péage pour
+               considérer qu'il est traversé (défaut 5 km).
+
+    Retourne la liste des péages détectés avec leur tarif, triés dans l'ordre du trajet.
+    """
+    from .db import sb
+    import math
+
+    # Charger tous les péages actifs
+    rows = sb().table("peages").select("*").eq("actif", True).execute().data or []
+    if not rows or not geometry:
+        return []
+
+    def _haversine(lat1, lon1, lat2, lon2):
+        R = 6371.0
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        dp = math.radians(lat2 - lat1)
+        dl = math.radians(lon2 - lon1)
+        a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+        return 2 * R * math.asin(math.sqrt(a))
+
+    # Sous-échantillonner la géométrie pour accélérer (1 point sur 5)
+    sample = geometry[::5]
+    if geometry[-1] not in sample:
+        sample.append(geometry[-1])
+
+    peages_detectes = []
+    for peage in rows:
+        plat = peage.get("latitude")
+        plon = peage.get("longitude")
+        if plat is None or plon is None:
+            continue
+        plat, plon = float(plat), float(plon)
+
+        # Trouver le point le plus proche sur le trajet
+        min_dist = float("inf")
+        min_idx = 0
+        for i, pt in enumerate(sample):
+            d = _haversine(pt[0], pt[1], plat, plon)
+            if d < min_dist:
+                min_dist = d
+                min_idx = i
+
+        if min_dist <= rayon_km:
+            peages_detectes.append({
+                "nom": peage["nom"],
+                "axe": peage["axe"],
+                "tarif": float(peage["tarif_classe4"]),
+                "distance_route_km": round(min_dist, 1),
+                "ordre": min_idx,  # position relative sur le trajet
+            })
+
+    # Trier par ordre d'apparition sur le trajet
+    peages_detectes.sort(key=lambda x: x["ordre"])
+    return peages_detectes
+
+
 # ---------- Cartes Folium ----------
 
 def carte_folium(lat: float | None = None, lon: float | None = None,

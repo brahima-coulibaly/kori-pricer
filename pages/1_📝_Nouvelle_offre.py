@@ -309,13 +309,36 @@ if destination and attelage:
     mt_carburant = carburant_litres * input_prix_carb
     col_mt.markdown(f"**{mt_carburant:,.0f}**".replace(",", " "))
 
-    # --- Péages ---
+    # --- Péages (détection automatique sur l'itinéraire OSRM) ---
+    peages_detectes = []
+    peages_total_aller = 0
+    if trajet_info and trajet_info.get("geometry"):
+        peages_detectes = geo.detecter_peages_sur_trajet(trajet_info["geometry"])
+        peages_total_aller = sum(p["tarif"] for p in peages_detectes)
+
+    peages_total_ar = peages_total_aller * 2  # Aller + retour
+
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
-    col_el.markdown("Péages")
-    col_qty.markdown("1")
-    input_peages = col_pu.number_input("Péages", value=int(db_peages), min_value=0, step=500,
-                                        label_visibility="collapsed", key="sim_peages")
-    col_mt.markdown(f"**{input_peages:,}**".replace(",", " "))
+    col_el.markdown("**Péages A/R**")
+    if peages_detectes:
+        col_qty.markdown(f"{len(peages_detectes)} poste(s) × 2")
+        col_pu.markdown(f"{peages_total_aller:,} /trajet".replace(",", " "))
+    else:
+        col_qty.markdown("—")
+        col_pu.markdown("—")
+
+    # Champ éditable pré-rempli avec le calcul automatique, modifiable si besoin
+    input_peages = col_mt.number_input(
+        "Total péages A/R", value=int(peages_total_ar) if peages_total_ar > 0 else int(db_peages),
+        min_value=0, step=500, label_visibility="collapsed", key="sim_peages",
+        help="Calculé automatiquement depuis l'itinéraire. Modifiable si besoin.")
+
+    # Détail des péages détectés
+    if peages_detectes:
+        with st.expander(f"🛣️ Détail des {len(peages_detectes)} péage(s) détecté(s) sur le trajet", expanded=False):
+            for p in peages_detectes:
+                st.markdown(f"- **{p['nom']}** ({p['axe']}) — {p['tarif']:,.0f} F/passage — _{p['distance_route_km']:.1f} km de la route_".replace(",", " "))
+            st.caption(f"Total aller : {peages_total_aller:,.0f} F — **Total A/R : {peages_total_ar:,.0f} F**".replace(",", " "))
 
     # --- Frais de route ---
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
