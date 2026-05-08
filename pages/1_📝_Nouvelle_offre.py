@@ -22,7 +22,7 @@ dests = sb().table("destinations").select(
 
 mode = st.radio(
     "Mode de saisie",
-    ["Choisir dans la liste", "Rechercher un lieu", "Coordonnées GPS", "Carte interactive"],
+    ["Rechercher un lieu", "Coordonnées GPS", "Carte interactive"],
     horizontal=True,
 )
 
@@ -30,39 +30,34 @@ destination = None
 gps_lat, gps_lon = None, None
 dest_data = None
 
-if mode == "Choisir dans la liste":
-    destination = st.selectbox("Destination", [d["localite"] for d in dests])
-    dest_data = next((d for d in dests if d["localite"] == destination), None)
-    if dest_data:
-        gps_lat, gps_lon = dest_data.get("latitude"), dest_data.get("longitude")
-
-elif mode == "Rechercher un lieu":
-    st.caption("🔎 Tapez le nom d'un lieu (ville, village, site industriel…)")
-    col_q, col_btn = st.columns([5, 1])
-    query = col_q.text_input("Nom du lieu", placeholder="Ex : Adzopé, Zone industrielle Yopougon…",
-                              label_visibility="collapsed")
-    go = col_btn.button("Rechercher", use_container_width=True)
-    if go and query:
-        with st.spinner("Recherche en cours…"):
-            st.session_state["geo_results"] = geo.chercher_lieu(query, limit=8)
-    results = st.session_state.get("geo_results", [])
-    if results:
-        options = [f"{r['display_name']}  —  ({r['lat']:.4f}, {r['lon']:.4f})" for r in results]
-        choix = st.radio("Choisissez le résultat correspondant :", options, index=0)
-        r = results[options.index(choix)]
-        gps_lat, gps_lon = r["lat"], r["lon"]
-        best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
-        if best:
-            if ecart < 15:
-                st.success(f"✅ Rattaché à **{best['localite']}** (écart : {ecart:.1f} km)")
-            elif ecart < 50:
-                st.info(f"📍 Ville de référence : **{best['localite']}** (écart : {ecart:.1f} km)")
-            else:
-                st.warning(f"⚠️ Ville la plus proche : **{best['localite']}** à {ecart:.1f} km.")
-            destination = best["localite"]
-            dest_data = next((d for d in dests if d["localite"] == destination), None)
-    elif go:
-        st.warning("Aucun résultat trouvé.")
+if mode == "Rechercher un lieu":
+    st.caption("🔎 Tapez le nom du lieu de livraison puis appuyez sur Entrée")
+    query = st.text_input("Nom du lieu", placeholder="Ex : Adzopé, Mine YTI, Zone industrielle Yopougon…",
+                           label_visibility="collapsed")
+    if query:
+        # Recherche déclenchée automatiquement à chaque saisie validée (Entrée)
+        if st.session_state.get("_last_geo_query") != query:
+            with st.spinner("Recherche en cours…"):
+                st.session_state["geo_results"] = geo.chercher_lieu(query, limit=8)
+                st.session_state["_last_geo_query"] = query
+        results = st.session_state.get("geo_results", [])
+        if results:
+            options = [f"{r['display_name']}  —  ({r['lat']:.4f}, {r['lon']:.4f})" for r in results]
+            choix = st.radio("Choisissez le résultat correspondant :", options, index=0)
+            r = results[options.index(choix)]
+            gps_lat, gps_lon = r["lat"], r["lon"]
+            best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
+            if best:
+                if ecart < 15:
+                    st.success(f"✅ Rattaché à **{best['localite']}** (écart : {ecart:.1f} km)")
+                elif ecart < 50:
+                    st.info(f"📍 Ville de référence : **{best['localite']}** (écart : {ecart:.1f} km)")
+                else:
+                    st.warning(f"⚠️ Ville la plus proche : **{best['localite']}** à {ecart:.1f} km.")
+                destination = best["localite"]
+                dest_data = next((d for d in dests if d["localite"] == destination), None)
+        else:
+            st.warning("Aucun résultat trouvé.")
 
 elif mode == "Coordonnées GPS":
     st.caption("📍 Entrez les coordonnées GPS exactes du point de livraison.")
