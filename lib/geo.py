@@ -217,6 +217,20 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.
     if geometry[-1] not in sample:
         sample.append(geometry[-1])
 
+    # Zone de départ : ignorer les péages détectés dans les premiers 15 km
+    # du trajet (zone urbaine Abidjan — les péages ici sont des ponts/voies
+    # rapides qui ne concernent pas les trajets inter-villes poids lourds).
+    # On calcule l'indice sample correspondant à ~15 km depuis le départ.
+    seuil_depart_km = 15.0
+    idx_seuil_depart = 0
+    cumul_km = 0.0
+    for i in range(1, len(sample)):
+        cumul_km += _haversine(sample[i-1][0], sample[i-1][1],
+                               sample[i][0], sample[i][1])
+        if cumul_km >= seuil_depart_km:
+            idx_seuil_depart = i
+            break
+
     peages_detectes = []
     tous_peages = []  # Pour le diagnostic
     for peage in rows:
@@ -240,6 +254,16 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.
                 min_idx = i
                 best_pt = pt
 
+        # Un péage est détecté s'il est dans le rayon ET en dehors de la zone
+        # de départ (sauf s'il a un rayon personnalisé très petit, signe qu'il
+        # a été volontairement calibré par l'admin).
+        dans_rayon = min_dist <= rayon_peage
+        en_zone_depart = min_idx <= idx_seuil_depart
+        # Les péages avec rayon personnalisé (ponts, etc.) ne sont détectés
+        # que si le trajet passe EXACTEMENT dessus ET hors zone de départ
+        est_peage_urbain = peage.get("rayon_detection_km") is not None
+        detecte = dans_rayon and not en_zone_depart
+
         info = {
             "nom": peage["nom"],
             "axe": peage["axe"],
@@ -251,10 +275,11 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.
             "lat_route": best_pt[0] if best_pt else None,
             "lon_route": best_pt[1] if best_pt else None,
             "rayon": rayon_peage,
-            "detecte": min_dist <= rayon_peage,
+            "detecte": detecte,
+            "en_zone_depart": en_zone_depart,
         }
 
-        if min_dist <= rayon_peage:
+        if detecte:
             peages_detectes.append(info)
         tous_peages.append(info)
 

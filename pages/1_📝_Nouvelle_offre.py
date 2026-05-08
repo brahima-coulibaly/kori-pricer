@@ -358,8 +358,9 @@ if destination and attelage:
                        "sont probablement incorrectes. Corrigez-les dans la page **Péages**.")
             diag_rows = []
             for p in tous_peages_diag:
+                statut = "✅" if p["detecte"] else ("🏙️ Zone départ" if p.get("en_zone_depart") and p["distance_route_km"] <= p["rayon"] else "❌")
                 diag_rows.append({
-                    "Statut": "✅" if p["detecte"] else "❌",
+                    "Statut": statut,
                     "Péage": p["nom"],
                     "Axe": p["axe"],
                     "Dist. route (km)": p["distance_route_km"],

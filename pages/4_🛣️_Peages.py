@@ -90,11 +90,17 @@ if is_admin:
             detectes, tous = geo.detecter_peages_sur_trajet(trajet["geometry"], diagnostic=True)
             st.markdown(f"**{len(detectes)} péage(s) détecté(s)** sur {len(tous)} actifs")
             for p in tous:
-                icon = "✅" if p["detecte"] else "❌"
+                if p["detecte"]:
+                    icon = "✅"
+                elif p.get("en_zone_depart") and p["distance_route_km"] <= p["rayon"]:
+                    icon = "🏙️"
+                else:
+                    icon = "❌"
+                zone_info = " *(zone départ — ignoré)*" if p.get("en_zone_depart") and p["distance_route_km"] <= p["rayon"] else ""
                 st.markdown(f"{icon} **{p['nom']}** ({p['axe']}) — "
                             f"dist. route : **{p['distance_route_km']:.1f} km** "
                             f"(rayon : {p['rayon']:.1f} km) — "
-                            f"GPS : ({p['lat_peage']:.4f}, {p['lon_peage']:.4f})")
+                            f"GPS : ({p['lat_peage']:.4f}, {p['lon_peage']:.4f}){zone_info}")
         else:
             st.error("Impossible de calculer le trajet OSRM.")
 
