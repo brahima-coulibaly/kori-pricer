@@ -177,12 +177,16 @@ def nombre_jours_mission(duree_aller_min: float, duree_max_jour_h: float = 9) ->
 
 # ---------- Détection des péages sur l'itinéraire ----------
 
-def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.0) -> list[dict]:
-    """Détecte quels postes de péage sont traversés par un itinéraire OSRM.
+def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 2.5) -> list[dict]:
+    """Détecte quels postes de péage traversés par un itinéraire OSRM.
 
     geometry : liste de [lat, lon] constituant la polyline du trajet.
     rayon_km : distance max entre un point de la route et un péage pour
-               considérer qu'il est traversé (défaut 5 km).
+               considérer qu'il est traversé (défaut 2.5 km — précis).
+
+    Chaque péage peut avoir un rayon_detection_km personnalisé en base
+    (ex : rayon réduit pour les ponts urbains). Sinon le rayon par défaut
+    est utilisé.
 
     Retourne la liste des péages détectés avec leur tarif, triés dans l'ordre du trajet.
     """
@@ -202,8 +206,8 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.
         a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
         return 2 * R * math.asin(math.sqrt(a))
 
-    # Sous-échantillonner la géométrie pour accélérer (1 point sur 5)
-    sample = geometry[::5]
+    # Échantillonner la géométrie plus densément (1 point sur 3) pour ne rien rater
+    sample = geometry[::3]
     if geometry[-1] not in sample:
         sample.append(geometry[-1])
 
@@ -215,6 +219,9 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.
             continue
         plat, plon = float(plat), float(plon)
 
+        # Rayon personnalisé si défini en base, sinon rayon par défaut
+        rayon_peage = float(peage.get("rayon_detection_km") or rayon_km)
+
         # Trouver le point le plus proche sur le trajet
         min_dist = float("inf")
         min_idx = 0
@@ -224,7 +231,7 @@ def detecter_peages_sur_trajet(geometry: list[list[float]], rayon_km: float = 5.
                 min_dist = d
                 min_idx = i
 
-        if min_dist <= rayon_km:
+        if min_dist <= rayon_peage:
             peages_detectes.append({
                 "nom": peage["nom"],
                 "axe": peage["axe"],

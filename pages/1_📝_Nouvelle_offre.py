@@ -29,6 +29,7 @@ mode = st.radio(
 destination = None
 gps_lat, gps_lon = None, None
 dest_data = None
+lieu_recherche = None  # Nom du lieu tel que recherché (ex: "Mine d'Ity")
 
 if mode == "Rechercher un lieu":
     st.caption("🔎 Tapez le nom du lieu de livraison puis appuyez sur Entrée")
@@ -46,6 +47,7 @@ if mode == "Rechercher un lieu":
             choix = st.radio("Choisissez le résultat correspondant :", options, index=0)
             r = results[options.index(choix)]
             gps_lat, gps_lon = r["lat"], r["lon"]
+            lieu_recherche = r["display_name"].split(",")[0].strip()
             best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
             if best:
                 if ecart < 15:
@@ -239,21 +241,27 @@ if destination and attelage:
     else:
         default_distance = db_distance
 
-    # Forcer la mise à jour du champ distance quand la destination change
-    _dest_key = f"{destination}_{mode}_{len(st.session_state.get('waypoints', []))}"
+    # Forcer la mise à jour des champs quand la destination ou le point GPS change
+    _dest_key = f"{destination}_{mode}_{gps_lat}_{gps_lon}_{len(st.session_state.get('waypoints', []))}"
     if st.session_state.get("_last_dest_key") != _dest_key:
         st.session_state["_last_dest_key"] = _dest_key
         st.session_state.pop("sim_dist", None)
+        st.session_state.pop("sim_peages", None)
 
     # =====================================================================
     # 4. TABLEAU DE SIMULATION (style TB Excel)
     # =====================================================================
-    st.markdown(f"### ESTIMATION COUT DE VOYAGE — {destination}")
+    # Nom affiché : lieu recherché + ville de référence si différent
+    _nom_affiche = destination
+    if lieu_recherche and lieu_recherche.upper() != destination.upper():
+        _nom_affiche = f"{lieu_recherche} (réf: {destination})"
+
+    st.markdown(f"### ESTIMATION COUT DE VOYAGE — {_nom_affiche}")
 
     # En-tête info
     col_info1, col_info2 = st.columns(2)
     with col_info1:
-        st.markdown(f"**SITE DE LIVRAISON** : {destination}")
+        st.markdown(f"**SITE DE LIVRAISON** : {_nom_affiche}")
         if distance_osrm_ar and distance_osrm_ar > 0:
             _dist_label = f"Distance A/R (km) — route OSRM depuis le garage"
             _dist_help = (f"Calculée automatiquement via OSRM. "
@@ -513,7 +521,7 @@ if destination and attelage:
             st.caption("⚠️ Itinéraire indicatif — peut différer du trajet réel.")
             m_view = geo.carte_folium(
                 lat=float(route_lat), lon=float(route_lon),
-                route_depuis_garage=True, marker_label=destination,
+                route_depuis_garage=True, marker_label=_nom_affiche,
                 vrai_itineraire=True, waypoints=waypoints_tuple,
             )
             st_folium(m_view, width=None, height=400, returned_objects=[], key="map_view")

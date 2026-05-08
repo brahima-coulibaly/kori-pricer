@@ -1,35 +1,13 @@
 -- ============================================================
--- Table des postes de péage en Côte d'Ivoire
--- Classe 4 (3 essieux et plus) = tarif utilisé par KORI
+-- Migration péages v2 : coordonnées corrigées + Eticoon-Tollakro
+-- + rayon de détection personnalisé par péage
+-- À exécuter dans l'éditeur SQL de Supabase
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS public.peages (
-    id serial PRIMARY KEY,
-    nom text NOT NULL,
-    axe text NOT NULL,
-    latitude numeric,
-    longitude numeric,
-    tarif_classe4 numeric NOT NULL DEFAULT 0,
-    actif boolean DEFAULT true,
-    rayon_detection_km numeric DEFAULT NULL,  -- rayon personnalisé (NULL = défaut 2.5 km)
-    maj_le timestamptz DEFAULT now()
-);
+-- 1. Ajouter la colonne rayon_detection_km si elle n'existe pas
+ALTER TABLE public.peages ADD COLUMN IF NOT EXISTS rayon_detection_km numeric DEFAULT NULL;
 
--- RLS
-ALTER TABLE public.peages ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Lecture peages pour authenticated" ON public.peages;
-CREATE POLICY "Lecture peages pour authenticated" ON public.peages
-    FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Modification peages pour authenticated" ON public.peages;
-CREATE POLICY "Modification peages pour authenticated" ON public.peages
-    FOR ALL TO authenticated USING (true) WITH CHECK (true);
-
--- ============================================================
--- Données : postes de péage (coordonnées GPS sur la chaussée)
--- rayon_detection_km : NULL = 2.5 km (défaut), réduit pour ponts urbains
--- ============================================================
+-- 2. Supprimer toutes les anciennes données et réinsérer
 TRUNCATE public.peages RESTART IDENTITY;
 
 INSERT INTO public.peages (nom, axe, latitude, longitude, tarif_classe4, rayon_detection_km) VALUES
@@ -48,11 +26,11 @@ INSERT INTO public.peages (nom, axe, latitude, longitude, tarif_classe4, rayon_d
     ('Grand-Bassam (Moossou)', 'Autoroute Grand-Bassam', 5.2150, -3.7400, 2500, NULL),
     ('Mondoukou',       'Autoroute Grand-Bassam',      5.2500, -3.5900, 2500, NULL),
 
-    -- Ponts à péage d'Abidjan (rayon réduit : détection uniquement si on passe dessus)
+    -- Ponts à péage d'Abidjan (rayon réduit : 1 km pour ne détecter que si on passe vraiment dessus)
     ('Pont HKB (3e Pont)',  'Pont Abidjan',            5.3100, -3.9850, 3000, 1.0),
     ('4e Pont',             'Pont Abidjan',            5.3450, -4.0550, 3000, 1.0),
 
-    -- Axe N'Douci - Divo - Gagnoa
+    -- Axe N'Douci - Divo - Gagnoa (NOUVEAU : Eticoon-Tollakro ajouté)
     ('Eticoon-Tollakro',  'N''Douci - Divo - Gagnoa',   6.1000, -5.3600, 3500, NULL),
     ('Lakota',            'N''Douci - Divo - Gagnoa',    5.8500, -5.7000, 3500, NULL),
 

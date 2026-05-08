@@ -44,6 +44,9 @@ if is_admin:
             "latitude": st.column_config.NumberColumn("Latitude", format="%.6f"),
             "longitude": st.column_config.NumberColumn("Longitude", format="%.6f"),
             "actif": st.column_config.CheckboxColumn("Actif"),
+            "rayon_detection_km": st.column_config.NumberColumn(
+                "Rayon détection (km)", min_value=0.5, max_value=10.0, step=0.5,
+                help="Rayon de détection personnalisé. Vide = 2.5 km par défaut. Réduit pour les ponts urbains."),
         },
     )
 
