@@ -128,8 +128,14 @@ st.divider()
 attelage = "739LS01-739LS01"  # Attelage par défaut
 
 c1, c2 = st.columns(2)
-quantite = c1.number_input("Qté à livrer (kg)", value=28000, min_value=1, step=1000)
+quantite = c1.number_input("Qté à livrer (kg)", value=None, min_value=1, step=1000,
+                            placeholder="Ex : 28000")
 autres = c2.number_input("Autres dépenses (F CFA)", value=0, min_value=0, step=1000)
+
+if not quantite or quantite <= 0:
+    if destination:
+        st.warning("⚠️ Veuillez renseigner la quantité à livrer (kg) pour lancer la simulation.")
+    st.stop()
 
 if destination and attelage:
     # ---- Waypoints ----
@@ -338,8 +344,11 @@ if destination and attelage:
         col_pu.markdown("—")
 
     # Champ éditable pré-rempli avec le calcul automatique, modifiable si besoin
+    # Si on a un trajet OSRM, on utilise le résultat de la détection (même si 0 péage).
+    # Sinon (pas de trajet), on utilise la valeur en base de données.
+    _peages_default = int(peages_total_ar) if trajet_info else int(db_peages)
     input_peages = col_mt.number_input(
-        "Total péages A/R", value=int(peages_total_ar) if peages_total_ar > 0 else int(db_peages),
+        "Total péages A/R", value=_peages_default,
         min_value=0, step=500, label_visibility="collapsed", key="sim_peages",
         help="Calculé automatiquement depuis l'itinéraire. Modifiable si besoin.")
 
