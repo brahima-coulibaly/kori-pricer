@@ -34,25 +34,28 @@ def _search_raw(query: str, limit: int = 5):
                   bounded=False, country_codes="ci", language="fr")
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def chercher_lieu(query: str, limit: int = 5) -> list[dict]:
     """Renvoie une liste de candidats [{display_name, lat, lon, address}] pour un texte."""
     if not query or len(query.strip()) < 2:
         return []
+    err1, err2 = None, None
+    results = None
     try:
         results = _search_raw(query.strip(), limit=limit)
-    except Exception:
+    except Exception as e:
+        err1 = str(e)
         results = None
     if not results:
         try:
             geolocator = _geocoder()
             search = RateLimiter(geolocator.geocode, min_delay_seconds=1)
             results = search(query.strip(), exactly_one=False, limit=limit, language="fr")
-        except Exception:
+        except Exception as e:
+            err2 = str(e)
             results = None
     if not results:
-        # Ne pas mettre en cache un résultat vide (erreur réseau possible)
-        st.cache_data.clear()
+        if err1 or err2:
+            st.error(f"Erreur géocodage : {err1 or ''} {err2 or ''}")
         return []
     return [{
         "display_name": r.address,
