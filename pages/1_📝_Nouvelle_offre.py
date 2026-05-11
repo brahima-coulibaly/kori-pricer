@@ -247,15 +247,16 @@ if destination and attelage:
     else:
         default_distance = db_distance
 
-    # Forcer la mise à jour des champs quand la destination ou le point GPS change
+    # Forcer la mise à jour de TOUS les champs auto-calculés quand la destination,
+    # le point GPS ou le nombre de waypoints change.
     _dest_key = f"{destination}_{mode}_{gps_lat}_{gps_lon}_{len(st.session_state.get('waypoints', []))}"
     if st.session_state.get("_last_dest_key") != _dest_key:
         st.session_state["_last_dest_key"] = _dest_key
-        st.session_state.pop("sim_dist", None)
-        st.session_state.pop("sim_peages", None)
-        st.session_state.pop("sim_fmission", None)
-        st.session_state.pop("sim_fvoyage", None)
-        st.session_state.pop("sim_heberg", None)
+        for _k in ("sim_dist", "sim_peages", "sim_fmission", "sim_fvoyage",
+                    "sim_heberg", "sim_froute", "sim_prime", "sim_pesage",
+                    "sim_carb_pu", "sim_prix_kg", "sim_lv",
+                    "_auto_dist", "_auto_peages"):
+            st.session_state.pop(_k, None)
 
     # =====================================================================
     # 4. TABLEAU DE SIMULATION (style TB Excel)
@@ -278,6 +279,10 @@ if destination and attelage:
         else:
             _dist_label = "Distance A/R (km) — saisie manuelle"
             _dist_help = "Pas de coordonnées GPS. Saisissez la distance manuellement."
+        # Forcer la mise à jour si la valeur auto-calculée a changé
+        if st.session_state.get("_auto_dist") != default_distance:
+            st.session_state["_auto_dist"] = default_distance
+            st.session_state["sim_dist"] = default_distance
         input_distance = st.number_input(
             _dist_label, value=default_distance,
             min_value=0.0, step=10.0, format="%.1f", key="sim_dist",
@@ -350,9 +355,9 @@ if destination and attelage:
     # Si on a un trajet OSRM, on utilise le résultat de la détection (même si 0 péage).
     # Sinon (pas de trajet), on utilise la valeur en base de données.
     _peages_default = int(peages_total_ar) if trajet_info else int(db_peages)
-    # Forcer la mise à jour si la valeur calculée a changé et que l'utilisateur
-    # n'a pas manuellement modifié le champ
-    if "sim_peages" not in st.session_state:
+    # Forcer la mise à jour si la valeur auto-calculée a changé
+    if st.session_state.get("_auto_peages") != _peages_default:
+        st.session_state["_auto_peages"] = _peages_default
         st.session_state["sim_peages"] = _peages_default
     input_peages = col_mt.number_input(
         "Total péages A/R", value=_peages_default,
