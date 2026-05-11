@@ -10,9 +10,8 @@ ALTER TABLE public.peages ADD COLUMN IF NOT EXISTS rayon_detection_km numeric DE
 TRUNCATE public.peages RESTART IDENTITY;
 
 INSERT INTO public.peages (nom, axe, latitude, longitude, tarif_classe4, actif, rayon_detection_km) VALUES
-    -- Autoroute du Nord (2 péages à Attinguié)
-    ('Attinguié 1',     'Autoroute du Nord',           5.4614, -4.1873, 5000, true, NULL),
-    ('Attinguié 2',     'Autoroute du Nord',           5.4706, -4.2015, 5000, true, NULL),
+    -- Autoroute du Nord
+    ('Attinguié',       'Autoroute du Nord',           5.4614, -4.1873, 5000, true, NULL),
     ('Singrobo',        'Autoroute du Nord',           6.0704, -4.8923, 5000, true, NULL),
     ('Tiébissou',       'Autoroute du Nord',           7.0487, -5.2467, 2000, true, NULL),
     ('Djébounoua',      'Autoroute du Nord',           7.5416, -5.0850, 4000, true, NULL),
