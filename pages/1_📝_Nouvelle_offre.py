@@ -253,6 +253,9 @@ if destination and attelage:
         st.session_state["_last_dest_key"] = _dest_key
         st.session_state.pop("sim_dist", None)
         st.session_state.pop("sim_peages", None)
+        st.session_state.pop("sim_fmission", None)
+        st.session_state.pop("sim_fvoyage", None)
+        st.session_state.pop("sim_heberg", None)
 
     # =====================================================================
     # 4. TABLEAU DE SIMULATION (style TB Excel)
@@ -347,6 +350,10 @@ if destination and attelage:
     # Si on a un trajet OSRM, on utilise le résultat de la détection (même si 0 péage).
     # Sinon (pas de trajet), on utilise la valeur en base de données.
     _peages_default = int(peages_total_ar) if trajet_info else int(db_peages)
+    # Forcer la mise à jour si la valeur calculée a changé et que l'utilisateur
+    # n'a pas manuellement modifié le champ
+    if "sim_peages" not in st.session_state:
+        st.session_state["sim_peages"] = _peages_default
     input_peages = col_mt.number_input(
         "Total péages A/R", value=_peages_default,
         min_value=0, step=500, label_visibility="collapsed", key="sim_peages",
