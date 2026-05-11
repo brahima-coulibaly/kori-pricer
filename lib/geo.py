@@ -42,7 +42,7 @@ def chercher_lieu(query: str, limit: int = 5) -> list[dict]:
     try:
         results = _search_raw(query.strip(), limit=limit)
     except Exception:
-        return []
+        results = None
     if not results:
         try:
             geolocator = _geocoder()
@@ -51,6 +51,8 @@ def chercher_lieu(query: str, limit: int = 5) -> list[dict]:
         except Exception:
             results = None
     if not results:
+        # Ne pas mettre en cache un résultat vide (erreur réseau possible)
+        st.cache_data.clear()
         return []
     return [{
         "display_name": r.address,
