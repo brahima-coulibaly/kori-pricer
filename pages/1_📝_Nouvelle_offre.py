@@ -148,15 +148,6 @@ if destination:
     col_pu.markdown("**Prix U.**")
     col_mt.markdown("**Montant**")
 
-    # --- Prix offert ---
-    col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
-    col_el.markdown("**Chiffre d'affaire F CFA**")
-    col_qty.markdown(f"{quantite:,}".replace(",", " "))
-    input_prix_kg = col_pu.number_input("F/kg", value=0, min_value=0, step=1,
-                                         label_visibility="collapsed", key="sim_prix_kg",
-                                         help="Laissez 0 pour calculer le prix plancher")
-
-    st.markdown("---")
     prix_carburant = params.get("prix_carburant", 700)
 
     # --- Carburant ---
@@ -274,7 +265,6 @@ if destination:
     # ---- Calcul via pricer ----
     calc = pricer.calculer(
         destination, attelage, quantite, autres,
-        prix_offert_kg=input_prix_kg if input_prix_kg > 0 else None,
         distance_ar_override=input_distance,
         peages_ar_override=float(input_peages),
         frais_mission_override=float(input_frais_mission),
