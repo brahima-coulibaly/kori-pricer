@@ -1,11 +1,10 @@
-"""Nouvelle offre commerciale — aligné TB Simulation livraison (refonte)."""
+"""Nouvelle offre commerciale — KORI TRANSPORT."""
 import streamlit as st
 import pandas as pd
 from lib import auth, pricer, geo
 from lib.db import sb
 from lib.pdf import pdf_offre
 from lib.pricer import load_params
-from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Nouvelle offre — KORI", page_icon="📝", layout="wide")
 auth.require_role("commercial", "manager", "admin")
@@ -20,113 +19,43 @@ dests = sb().table("destinations").select(
     "frais_voyage,frais_hebergement,latitude,longitude"
 ).order("localite").execute().data or []
 
-mode = st.radio(
-    "Mode de saisie",
-    ["Rechercher un lieu", "Coordonnées GPS", "Carte interactive"],
-    horizontal=True,
-)
-
 destination = None
 gps_lat, gps_lon = None, None
 dest_data = None
-lieu_recherche = None  # Nom du lieu tel que recherché (ex: "Mine d'Ity")
+lieu_recherche = None
 
-if mode == "Rechercher un lieu":
-    st.caption("🔎 Tapez le nom du lieu de livraison puis appuyez sur Entrée")
-    query = st.text_input("Nom du lieu", placeholder="Ex : Adzopé, Mine YTI, Zone industrielle Yopougon…",
-                           label_visibility="collapsed")
-    if query:
-        # Recherche déclenchée automatiquement à chaque saisie validée (Entrée)
-        if st.session_state.get("_last_geo_query") != query:
-            with st.spinner("Recherche en cours…"):
-                st.session_state["geo_results"] = geo.chercher_lieu(query, limit=8)
-                st.session_state["_last_geo_query"] = query
-        results = st.session_state.get("geo_results", [])
-        if results:
-            options = [f"{r['display_name']}  —  ({r['lat']:.4f}, {r['lon']:.4f})" for r in results]
-            choix = st.radio("Choisissez le résultat correspondant :", options, index=0)
-            r = results[options.index(choix)]
-            gps_lat, gps_lon = r["lat"], r["lon"]
-            lieu_recherche = r["display_name"].split(",")[0].strip()
-            best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
-            if best:
-                if ecart < 15:
-                    st.success(f"✅ Rattaché à **{best['localite']}** (écart : {ecart:.1f} km)")
-                elif ecart < 50:
-                    st.info(f"📍 Ville de référence : **{best['localite']}** (écart : {ecart:.1f} km)")
-                else:
-                    st.warning(f"⚠️ Ville la plus proche : **{best['localite']}** à {ecart:.1f} km.")
-                destination = best["localite"]
-                dest_data = next((d for d in dests if d["localite"] == destination), None)
-        else:
-            st.warning("Aucun résultat trouvé.")
-
-elif mode == "Coordonnées GPS":
-    st.caption("📍 Entrez les coordonnées GPS exactes du point de livraison.")
-    col_lat, col_lon = st.columns(2)
-    input_lat = col_lat.number_input("Latitude", value=None, min_value=4.0, max_value=11.0,
-                                      format="%.6f", step=0.001, placeholder="Ex : 6.8276")
-    input_lon = col_lon.number_input("Longitude", value=None, min_value=-9.0, max_value=-2.0,
-                                      format="%.6f", step=0.001, placeholder="Ex : -5.2893")
-    if input_lat is not None and input_lon is not None:
-        gps_lat, gps_lon = input_lat, input_lon
-        with st.spinner("Identification du lieu…"):
-            adresse = geo.reverse_geocode(gps_lat, gps_lon)
-        if adresse:
-            st.success(f"📍 Lieu identifié : **{adresse}**")
+st.caption("🔎 Tapez le nom du lieu de livraison puis appuyez sur Entrée")
+query = st.text_input("Nom du lieu", placeholder="Ex : Adzopé, Mine d'Ity, Zone industrielle Yopougon…",
+                       label_visibility="collapsed")
+if query:
+    if st.session_state.get("_last_geo_query") != query:
+        with st.spinner("Recherche en cours…"):
+            st.session_state["geo_results"] = geo.chercher_lieu(query, limit=8)
+            st.session_state["_last_geo_query"] = query
+    results = st.session_state.get("geo_results", [])
+    if results:
+        options = [f"{r['display_name']}  —  ({r['lat']:.4f}, {r['lon']:.4f})" for r in results]
+        choix = st.radio("Choisissez le résultat correspondant :", options, index=0)
+        r = results[options.index(choix)]
+        gps_lat, gps_lon = r["lat"], r["lon"]
+        lieu_recherche = r["display_name"].split(",")[0].strip()
         best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
         if best:
             if ecart < 15:
-                st.success(f"✅ Rattaché à **{best['localite']}** ({ecart:.1f} km)")
+                st.success(f"✅ Rattaché à **{best['localite']}** (écart : {ecart:.1f} km)")
             elif ecart < 50:
-                st.info(f"📍 Ville de référence : **{best['localite']}** ({ecart:.1f} km)")
+                st.info(f"📍 Ville de référence : **{best['localite']}** (écart : {ecart:.1f} km)")
             else:
                 st.warning(f"⚠️ Ville la plus proche : **{best['localite']}** à {ecart:.1f} km.")
             destination = best["localite"]
             dest_data = next((d for d in dests if d["localite"] == destination), None)
     else:
-        st.warning("Veuillez renseigner la latitude et la longitude.")
-
-elif mode == "Carte interactive":
-    st.caption("🗺️ Cliquez sur la carte pour positionner le point de livraison.")
-    last = st.session_state.get("map_click")
-    has_point = last is not None
-    m = geo.carte_folium(
-        lat=last["lat"] if has_point else None,
-        lon=last["lng"] if has_point else None,
-        zoom=9 if has_point else 6,
-        route_depuis_garage=has_point,
-        marker_label="Point sélectionné",
-    )
-    out = st_folium(m, width=None, height=500, returned_objects=["last_clicked"])
-    if out and out.get("last_clicked"):
-        new_click = out["last_clicked"]
-        if last is None or new_click != last:
-            st.session_state["map_click"] = new_click
-            st.rerun()
-    if last:
-        gps_lat, gps_lon = last["lat"], last["lng"]
-        st.info(f"📍 Point sélectionné : **{gps_lat:.4f}, {gps_lon:.4f}**")
-        best, ecart = pricer.ville_la_plus_proche(gps_lat, gps_lon)
-        if best:
-            destination = best["localite"]
-            dest_data = next((d for d in dests if d["localite"] == destination), None)
-            if ecart < 15:
-                st.success(f"✅ Rattaché à **{destination}** ({ecart:.1f} km)")
-            elif ecart < 50:
-                st.info(f"📍 Ville de référence : **{destination}** ({ecart:.1f} km)")
-            else:
-                st.warning(f"⚠️ Ville la plus proche : **{destination}** à {ecart:.1f} km.")
-        if st.button("🔄 Réinitialiser le point"):
-            st.session_state.pop("map_click", None)
-            st.rerun()
+        st.warning("Aucun résultat trouvé.")
 
 # =====================================================================
-# 2. PARAMÈTRES DE L'OPÉRATION
+# 2. QUANTITÉ
 # =====================================================================
 st.divider()
-attelage = "739LS01-739LS01"  # Attelage par défaut
-
 c1, c2 = st.columns(2)
 quantite = c1.number_input("Qté à livrer (kg)", value=None, min_value=1, step=1000,
                             placeholder="Ex : 28000")
@@ -137,102 +66,27 @@ if not quantite or quantite <= 0:
         st.warning("⚠️ Veuillez renseigner la quantité à livrer (kg) pour lancer la simulation.")
     st.stop()
 
-if destination and attelage:
-    # ---- Waypoints ----
+if destination:
+    attelage = "739LS01-739LS01"
     route_lat = gps_lat if gps_lat is not None else (dest_data.get("latitude") if dest_data else None)
     route_lon = gps_lon if gps_lon is not None else (dest_data.get("longitude") if dest_data else None)
 
-    with st.expander("🛤️ Points de passage (optionnel — corriger l'itinéraire)", expanded=False):
-        st.caption("Ajoutez des points intermédiaires pour corriger le trajet.")
-        if "waypoints" not in st.session_state:
-            st.session_state["waypoints"] = []
-
-        wp_mode = st.radio("Ajouter via :", ["Ville connue", "Recherche", "Coordonnées GPS"],
-                           horizontal=True, key="wp_mode")
-        if wp_mode == "Ville connue":
-            wp_ville = st.selectbox("Ville de passage", [d["localite"] for d in dests], key="wp_ville")
-            wp_data = next((d for d in dests if d["localite"] == wp_ville), None)
-            if wp_data and wp_data.get("latitude") and wp_data.get("longitude"):
-                if st.button(f"➕ Ajouter **{wp_ville}**", key="wp_add_ville"):
-                    st.session_state["waypoints"].append({"label": wp_ville,
-                        "lat": float(wp_data["latitude"]), "lon": float(wp_data["longitude"])})
-                    st.rerun()
-        elif wp_mode == "Recherche":
-            col_wq, col_wb = st.columns([5, 1])
-            wp_query = col_wq.text_input("Lieu de passage", placeholder="Ex : Bonoua", key="wp_query")
-            if col_wb.button("Chercher", key="wp_search", use_container_width=True) and wp_query:
-                with st.spinner("Recherche…"):
-                    st.session_state["wp_results"] = geo.chercher_lieu(wp_query, limit=5)
-            wp_results = st.session_state.get("wp_results", [])
-            if wp_results:
-                wp_opts = [f"{r['display_name']} — ({r['lat']:.4f}, {r['lon']:.4f})" for r in wp_results]
-                wp_choix = st.radio("Résultat :", wp_opts, key="wp_choix")
-                wp_r = wp_results[wp_opts.index(wp_choix)]
-                if st.button("➕ Ajouter", key="wp_add_search"):
-                    st.session_state["waypoints"].append({"label": wp_r["display_name"].split(",")[0],
-                        "lat": wp_r["lat"], "lon": wp_r["lon"]})
-                    st.session_state.pop("wp_results", None)
-                    st.rerun()
-        elif wp_mode == "Coordonnées GPS":
-            col_wlat, col_wlon = st.columns(2)
-            wp_lat = col_wlat.number_input("Latitude", value=None, min_value=4.0, max_value=11.0,
-                                            format="%.6f", step=0.001, key="wp_lat")
-            wp_lon = col_wlon.number_input("Longitude", value=None, min_value=-9.0, max_value=-2.0,
-                                            format="%.6f", step=0.001, key="wp_lon")
-            if wp_lat is not None and wp_lon is not None:
-                if st.button(f"➕ Ajouter ({wp_lat:.4f}, {wp_lon:.4f})", key="wp_add_gps"):
-                    st.session_state["waypoints"].append({"label": f"GPS ({wp_lat:.4f}, {wp_lon:.4f})",
-                        "lat": wp_lat, "lon": wp_lon})
-                    st.rerun()
-
-        wps = st.session_state.get("waypoints", [])
-        if wps:
-            st.markdown("**Points de passage :**")
-            for i, wp in enumerate(wps):
-                col_wp, col_del = st.columns([5, 1])
-                col_wp.write(f"{i+1}. **{wp['label']}** ({wp['lat']:.4f}, {wp['lon']:.4f})")
-                if col_del.button("❌", key=f"wp_del_{i}"):
-                    st.session_state["waypoints"].pop(i)
-                    st.rerun()
-            if st.button("🗑️ Tout supprimer", key="wp_clear"):
-                st.session_state["waypoints"] = []
-                st.rerun()
-
-    waypoints_tuple = tuple((wp["lat"], wp["lon"]) for wp in st.session_state.get("waypoints", []))
-    if not waypoints_tuple:
-        waypoints_tuple = None
-
-    # ---- Distance OSRM (indicatif) ----
+    # ---- Distance OSRM ----
     trajet_info = None
     distance_osrm_ar = None
     if route_lat is not None and route_lon is not None:
         try:
             _rlat, _rlon = float(route_lat), float(route_lon)
             with st.spinner("Calcul de l'itinéraire…"):
-                trajet_info = geo.trajet_depuis_garage(_rlat, _rlon, waypoints=waypoints_tuple)
+                trajet_info = geo.trajet_depuis_garage(_rlat, _rlon)
             if trajet_info:
                 distance_osrm_ar = trajet_info["distance_km"] * 2
         except (TypeError, ValueError):
             trajet_info = None
 
-    if trajet_info:
-        params = load_params()
-        vitesse_pl = params.get("vitesse_moyenne_pl_kmh", 50)
-        duree_max = params.get("duree_max_conduite_jour_h", 9)
-        marge_temps = params.get("marge_securite_temps_pct", 15)
-        duree_aller_min = geo.duree_pratique_pl(trajet_info["distance_km"], vitesse_pl, marge_temps)
-        jours_mission = geo.nombre_jours_mission(duree_aller_min, duree_max)
-        st.caption("🗺️ **Estimation OSRM** (indicatif)")
-        cr1, cr2, cr3 = st.columns(3)
-        cr1.metric("🛣️ Distance OSRM A/R", f"{distance_osrm_ar:,.0f} km".replace(",", " "))
-        cr2.metric(f"⏱️ Durée aller ({vitesse_pl:.0f} km/h)",
-                   f"{duree_aller_min:.0f} min ({duree_aller_min/60:.1f} h)")
-        cr3.metric("📅 Jours mission", f"{jours_mission}")
-
     # =====================================================================
-    # 3. PARAMÈTRES DE LA LIVRAISON (éditables)
+    # 3. PARAMÈTRES & VALEURS PAR DÉFAUT
     # =====================================================================
-    st.divider()
     params = load_params()
 
     db_distance = float(dest_data.get("distance_ar_km") or 0) if dest_data else 0
@@ -241,15 +95,13 @@ if destination and attelage:
     db_frais_voyage = float(dest_data.get("frais_voyage") or 0) if dest_data else 0
     db_frais_hebergement = float(dest_data.get("frais_hebergement") or 0) if dest_data else 0
 
-    # Distance par défaut : OSRM (route réelle depuis le garage) si disponible, sinon base de données
     if distance_osrm_ar and distance_osrm_ar > 0:
         default_distance = round(distance_osrm_ar, 1)
     else:
         default_distance = db_distance
 
-    # Forcer la mise à jour de TOUS les champs auto-calculés quand la destination,
-    # le point GPS ou le nombre de waypoints change.
-    _dest_key = f"{destination}_{mode}_{gps_lat}_{gps_lon}_{len(st.session_state.get('waypoints', []))}"
+    # Forcer la mise à jour quand la destination ou le point GPS change
+    _dest_key = f"{destination}_{gps_lat}_{gps_lon}"
     if st.session_state.get("_last_dest_key") != _dest_key:
         st.session_state["_last_dest_key"] = _dest_key
         for _k in ("sim_dist", "sim_peages", "sim_fmission", "sim_fvoyage",
@@ -259,38 +111,27 @@ if destination and attelage:
             st.session_state.pop(_k, None)
 
     # =====================================================================
-    # 4. TABLEAU DE SIMULATION (style TB Excel)
+    # 4. TABLEAU DE SIMULATION
     # =====================================================================
-    # Nom affiché : lieu recherché + ville de référence si différent
     _nom_affiche = destination
     if lieu_recherche and lieu_recherche.upper() != destination.upper():
         _nom_affiche = f"{lieu_recherche} (réf: {destination})"
 
     st.markdown(f"### ESTIMATION COUT DE VOYAGE — {_nom_affiche}")
 
-    # En-tête info
     col_info1, col_info2 = st.columns(2)
     with col_info1:
         st.markdown(f"**SITE DE LIVRAISON** : {_nom_affiche}")
-        if distance_osrm_ar and distance_osrm_ar > 0:
-            _dist_label = f"Distance A/R (km) — route OSRM depuis le garage"
-            _dist_help = (f"Calculée automatiquement via OSRM. "
-                          f"Modifiable si besoin (ex : itinéraire différent).")
-        else:
-            _dist_label = "Distance A/R (km) — saisie manuelle"
-            _dist_help = "Pas de coordonnées GPS. Saisissez la distance manuellement."
         # Forcer la mise à jour si la valeur auto-calculée a changé
         if st.session_state.get("_auto_dist") != default_distance:
             st.session_state["_auto_dist"] = default_distance
             st.session_state["sim_dist"] = default_distance
         input_distance = st.number_input(
-            _dist_label, value=default_distance,
-            min_value=0.0, step=10.0, format="%.1f", key="sim_dist",
-            help=_dist_help)
+            "Distance A/R (km)", value=default_distance,
+            min_value=0.0, step=10.0, format="%.1f", key="sim_dist")
         consommation = params.get("consommation_l_km", 0.5)
         carburant_litres = input_distance * consommation
-        st.markdown(f"**CARBURANT** : {carburant_litres:,.0f} L".replace(",", " "))
-        st.markdown(f"**Qté à livrer** : {quantite:,} kg".replace(",", " "))
+        st.markdown(f"**CARBURANT** : {carburant_litres:,.0f} L  —  **Qté** : {quantite:,} kg".replace(",", " "))
 
     with col_info2:
         taux_maint = params.get("maintenance_pct_ca", 0.0385)
@@ -298,52 +139,46 @@ if destination and attelage:
 
     st.divider()
 
-    # ---- Ligne par ligne : Eléments | Qté | Prix U. | Montant ----
-    prix_carburant = params.get("prix_carburant", 700)
-
-    # Champs éditables pour chaque poste
+    # ---- Détail des charges ----
     st.markdown("#### Détail des charges")
 
-    # Préparer les données éditables dans un formulaire compact
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
     col_el.markdown("**Eléments**")
     col_qty.markdown("**Qté**")
     col_pu.markdown("**Prix U.**")
     col_mt.markdown("**Montant**")
 
-    # --- Prix offert (ligne CA) ---
+    # --- Prix offert ---
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
     col_el.markdown("**Chiffre d'affaire F CFA**")
     col_qty.markdown(f"{quantite:,}".replace(",", " "))
     input_prix_kg = col_pu.number_input("F/kg", value=0, min_value=0, step=1,
                                          label_visibility="collapsed", key="sim_prix_kg",
                                          help="Laissez 0 pour calculer le prix plancher")
-    # Le CA sera calculé après
 
     st.markdown("---")
+    prix_carburant = params.get("prix_carburant", 700)
 
     # --- Carburant ---
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
-    col_el.markdown("Carburant F CFA")
+    col_el.markdown("Carburant")
     col_qty.markdown(f"{carburant_litres:,.0f}".replace(",", " "))
     input_prix_carb = col_pu.number_input("Prix/L", value=int(prix_carburant), min_value=0,
                                            step=25, label_visibility="collapsed", key="sim_carb_pu")
     mt_carburant = carburant_litres * input_prix_carb
     col_mt.markdown(f"**{mt_carburant:,.0f}**".replace(",", " "))
 
-    # --- Péages (détection automatique sur l'itinéraire OSRM) ---
+    # --- Péages ---
     peages_detectes = []
-    tous_peages_diag = []
     peages_total_aller = 0
     if trajet_info and trajet_info.get("geometry"):
-        peages_detectes, tous_peages_diag = geo.detecter_peages_sur_trajet(
+        peages_detectes, _diag = geo.detecter_peages_sur_trajet(
             trajet_info["geometry"], diagnostic=True)
         peages_total_aller = sum(p["tarif"] for p in peages_detectes)
-
-    peages_total_ar = peages_total_aller * 2  # Aller + retour
+    peages_total_ar = peages_total_aller * 2
 
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
-    col_el.markdown("**Péages A/R**")
+    col_el.markdown("Péages A/R")
     if peages_detectes:
         col_qty.markdown(f"{len(peages_detectes)} poste(s) × 2")
         col_pu.markdown(f"{peages_total_aller:,} /trajet".replace(",", " "))
@@ -351,45 +186,20 @@ if destination and attelage:
         col_qty.markdown("—")
         col_pu.markdown("—")
 
-    # Champ éditable pré-rempli avec le calcul automatique, modifiable si besoin
-    # Si on a un trajet OSRM, on utilise le résultat de la détection (même si 0 péage).
-    # Sinon (pas de trajet), on utilise la valeur en base de données.
     _peages_default = int(peages_total_ar) if trajet_info else int(db_peages)
-    # Forcer la mise à jour si la valeur auto-calculée a changé
     if st.session_state.get("_auto_peages") != _peages_default:
         st.session_state["_auto_peages"] = _peages_default
         st.session_state["sim_peages"] = _peages_default
     input_peages = col_mt.number_input(
-        "Total péages A/R", value=_peages_default,
-        min_value=0, step=500, label_visibility="collapsed", key="sim_peages",
-        help="Calculé automatiquement depuis l'itinéraire. Modifiable si besoin.")
+        "Péages", value=_peages_default,
+        min_value=0, step=500, label_visibility="collapsed", key="sim_peages")
 
-    # Détail des péages détectés
+    # Détail péages (expander)
     if peages_detectes:
-        with st.expander(f"🛣️ Détail des {len(peages_detectes)} péage(s) détecté(s) sur le trajet", expanded=False):
+        with st.expander(f"Détail des {len(peages_detectes)} péage(s)", expanded=False):
             for p in peages_detectes:
-                st.markdown(f"- **{p['nom']}** ({p['axe']}) — {p['tarif']:,.0f} F/passage — _{p['distance_route_km']:.1f} km de la route_".replace(",", " "))
-            st.caption(f"Total aller : {peages_total_aller:,.0f} F — **Total A/R : {peages_total_ar:,.0f} F**".replace(",", " "))
-
-    # Diagnostic péages (admin uniquement) — aide à corriger les coordonnées GPS
-    if tous_peages_diag and auth.current_role() == "admin":
-        with st.expander("🔧 Diagnostic péages — distances à la route (admin)", expanded=False):
-            st.caption("Distance entre chaque péage et le point le plus proche de l'itinéraire OSRM. "
-                       "Si un péage devrait être détecté mais ne l'est pas, ses coordonnées GPS "
-                       "sont probablement incorrectes. Corrigez-les dans la page **Péages**.")
-            diag_rows = []
-            for p in tous_peages_diag:
-                statut = "✅" if p["detecte"] else ("🏙️ Zone départ" if p.get("en_zone_depart") and p["distance_route_km"] <= p["rayon"] else "❌")
-                diag_rows.append({
-                    "Statut": statut,
-                    "Péage": p["nom"],
-                    "Axe": p["axe"],
-                    "Dist. route (km)": p["distance_route_km"],
-                    "Rayon (km)": p["rayon"],
-                    "GPS péage": f"{p['lat_peage']:.4f}, {p['lon_peage']:.4f}",
-                    "Pt route proche": f"{p['lat_route']:.4f}, {p['lon_route']:.4f}" if p["lat_route"] else "—",
-                })
-            st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
+                st.markdown(f"- **{p['nom']}** ({p['axe']}) — {p['tarif']:,.0f} F".replace(",", " "))
+            st.caption(f"Total A/R : {peages_total_ar:,.0f} F".replace(",", " "))
 
     # --- Frais de route ---
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
@@ -438,7 +248,7 @@ if destination and attelage:
 
     # --- Lettre de voiture ---
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
-    col_el.markdown("Lettre de voiture F CFA")
+    col_el.markdown("Lettre de voiture")
     col_qty.markdown("1")
     lv_default = int(params.get("lettre_voiture", 2500))
     input_lv = col_pu.number_input("LV", value=lv_default, min_value=0, step=500,
@@ -462,16 +272,12 @@ if destination and attelage:
     col_mt.markdown(f"**{autres:,}**".replace(",", " "))
 
     # ---- Calcul via pricer ----
-    dist_override = input_distance
-    peages_override = float(input_peages)
-    frais_override = float(input_frais_mission)
-
     calc = pricer.calculer(
         destination, attelage, quantite, autres,
         prix_offert_kg=input_prix_kg if input_prix_kg > 0 else None,
-        distance_ar_override=dist_override,
-        peages_ar_override=peages_override,
-        frais_mission_override=frais_override,
+        distance_ar_override=input_distance,
+        peages_ar_override=float(input_peages),
+        frais_mission_override=float(input_frais_mission),
         pesage_override=float(input_pesage),
         frais_voyage_override=float(input_frais_voyage),
         frais_route_override=float(input_frais_route),
@@ -482,8 +288,7 @@ if destination and attelage:
     col_el, col_qty, col_pu, col_mt = st.columns([3, 1.5, 1.5, 2])
     col_el.markdown("Coût de maintenance")
     col_qty.markdown(f"{calc.ca_total:,.0f}".replace(",", " "))
-    taux_eff = taux_maint
-    col_pu.markdown(f"{taux_eff*100:.2f} %")
+    col_pu.markdown(f"{taux_maint*100:.2f} %")
     col_mt.markdown(f"**{calc.maintenance:,.0f}**".replace(",", " "))
 
     # --- Total Charges ---
@@ -493,11 +298,10 @@ if destination and attelage:
     col_mt.markdown(f"### {calc.total_charges:,.0f}".replace(",", " "))
 
     # =====================================================================
-    # 5. RÉSULTATS — MARGE & KPIs
+    # 5. RÉSULTATS
     # =====================================================================
     st.divider()
 
-    # CA
     col_el, col_mt = st.columns([3, 2])
     col_el.markdown(f"**Chiffre d'affaire** ({quantite:,} kg × {calc.prix_offert_kg:,.0f} F/kg)")
     col_mt.markdown(f"### {calc.ca_total:,.0f} F".replace(",", " "))
@@ -521,7 +325,7 @@ if destination and attelage:
     else:
         st.error(f"🛑 Marge insuffisante — sous le seuil critique ({seuil_crit*100:.0f} %)")
 
-    # ---- Calcul du prix de vente (méthode Excel) ----
+    # Prix de vente recommandé
     st.markdown("---")
     col_pv1, col_pv2 = st.columns(2)
     col_pv1.markdown(f"**Coût total / kg** : {calc.cout_par_kg:,.0f} F/kg".replace(",", " "))
@@ -530,47 +334,7 @@ if destination and attelage:
     col_pv2.metric("Prix de vente recommandé", f"{prix_vente_cible:,.0f} F/kg".replace(",", " "))
 
     # =====================================================================
-    # 6. COMPARAISON PAR NIVEAU DE MARGE (style TB Excel)
-    # =====================================================================
-    st.divider()
-    st.subheader("📊 Simulation par niveau de marge")
-    st.caption("Tarifs calculés pour atteindre différents niveaux de marge cible.")
-
-    marges_cibles = [0.75, 0.70, 0.65, 0.60]
-    rows_comp = []
-    for mc in marges_cibles:
-        denom = max(1 - (taux_eff if taux_maint > 0 else 0) - mc, 0.0001)
-        charges_base = calc.total_charges - calc.maintenance
-        ca_sc = charges_base / denom
-        tarif_sc = ca_sc / max(quantite, 1)
-        maint_sc = ca_sc * taux_eff if taux_maint > 0 else calc.maintenance
-        charges_sc = charges_base + maint_sc
-        marge_sc = ca_sc - charges_sc
-        rows_comp.append({
-            "Marge cible": f"{mc*100:.0f} %",
-            "Tarif (F/kg)": f"{tarif_sc:,.2f}".replace(",", " "),
-            "CA (F CFA)": f"{ca_sc:,.0f}".replace(",", " "),
-            "Marge brute (F)": f"{marge_sc:,.0f}".replace(",", " "),
-        })
-
-    df_comp = pd.DataFrame(rows_comp)
-    st.dataframe(df_comp, use_container_width=True, hide_index=True)
-
-    # =====================================================================
-    # 7. CARTE (optionnel)
-    # =====================================================================
-    if route_lat is not None and route_lon is not None:
-        with st.expander("🗺️ Visualiser l'itinéraire (indicatif)", expanded=False):
-            st.caption("⚠️ Itinéraire indicatif — peut différer du trajet réel.")
-            m_view = geo.carte_folium(
-                lat=float(route_lat), lon=float(route_lon),
-                route_depuis_garage=True, marker_label=_nom_affiche,
-                vrai_itineraire=True, waypoints=waypoints_tuple,
-            )
-            st_folium(m_view, width=None, height=400, returned_objects=[], key="map_view")
-
-    # =====================================================================
-    # 8. ENREGISTREMENT
+    # 6. ENREGISTREMENT
     # =====================================================================
     st.divider()
     notes = st.text_area("Notes (optionnel)")
